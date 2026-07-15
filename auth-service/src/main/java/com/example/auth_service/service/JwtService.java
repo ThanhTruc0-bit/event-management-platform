@@ -23,12 +23,29 @@ public class JwtService {
     private Long accessTokenExpirationMs;
 
     private SecretKey getSigningKey() {
-        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        if (secret == null || secret.length() < 32) {
+            throw new IllegalStateException(
+                    "JWT secret must contain at least 32 characters"
+            );
+        }
+
+        return Keys.hmacShaKeyFor(
+                secret.getBytes(StandardCharsets.UTF_8)
+        );
     }
 
     public String generateAccessToken(UserDTO user) {
+        if (user == null || user.getId() == null) {
+            throw new IllegalArgumentException(
+                    "User information is required"
+            );
+        }
+
         Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + accessTokenExpirationMs);
+
+        Date expiryDate = new Date(
+                now.getTime() + accessTokenExpirationMs
+        );
 
         return Jwts.builder()
                 .subject(user.getEmail())
@@ -42,13 +59,20 @@ public class JwtService {
     }
 
     public Claims parseToken(String token) {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Token is required"
+            );
+        }
+
         try {
             return Jwts.parser()
                     .verifyWith(getSigningKey())
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-        } catch (Exception e) {
+        } catch (Exception exception) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Invalid or expired token"
@@ -57,24 +81,39 @@ public class JwtService {
     }
 
     public Long getUserIdFromToken(String token) {
-        Object userId = parseToken(token).get("userId");
+        Object userId =
+                parseToken(token).get("userId");
 
-        if (userId instanceof Integer) {
-            return ((Integer) userId).longValue();
+        if (userId == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Token does not contain userId"
+            );
         }
 
-        if (userId instanceof Long) {
-            return (Long) userId;
+        if (userId instanceof Number number) {
+            return number.longValue();
         }
 
-        return Long.valueOf(String.valueOf(userId));
+        try {
+            return Long.valueOf(
+                    String.valueOf(userId)
+            );
+        } catch (NumberFormatException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Invalid userId in token"
+            );
+        }
     }
 
     public String getEmailFromToken(String token) {
-        return parseToken(token).get("email", String.class);
+        return parseToken(token)
+                .get("email", String.class);
     }
 
     public String getRoleFromToken(String token) {
-        return parseToken(token).get("role", String.class);
+        return parseToken(token)
+                .get("role", String.class);
     }
 }

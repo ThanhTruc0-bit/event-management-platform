@@ -4,10 +4,14 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 public class BookingCreatedEvent {
+
+    private String messageId;
 
     private Long bookingId;
 
@@ -18,4 +22,6 @@ public class BookingCreatedEvent {
     private Double totalAmount;
 
     private String message;
+
+    private LocalDateTime occurredAt;
 }

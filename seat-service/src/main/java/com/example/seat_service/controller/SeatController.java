@@ -43,21 +43,26 @@ public class SeatController {
     @PutMapping("/{id}")
     public Seat updateSeat(
             @PathVariable Long id,
-            @RequestBody Seat seat
-    ) {
+            @RequestBody Seat seat) {
         return seatService.updateSeat(id, seat);
     }
 
     @PutMapping("/{id}/status")
     public Seat updateSeatStatus(
             @PathVariable Long id,
-            @RequestParam String status
-    ) {
+            @RequestParam String status) {
         return seatService.updateSeatStatus(id, status);
     }
 
     @DeleteMapping("/{id}")
     public void deleteSeat(@PathVariable Long id) {
         seatService.deleteSeat(id);
+    }
+
+    @PutMapping("/{id}/reserve")
+    public Seat reserveSeat(
+            @PathVariable Long id,
+            @RequestParam Long eventId) {
+        return seatService.reserveSeat(id, eventId);
     }
 }

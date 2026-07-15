@@ -1,21 +1,45 @@
 import { useEffect, useMemo, useState } from "react";
 import axiosClient from "../api/axiosClient";
-import { Plus, RefreshCw, Search, Pencil, Trash2, X } from "lucide-react";
+import {
+    ChevronLeft,
+    ChevronRight,
+    Pencil,
+    Plus,
+    RefreshCw,
+    Search,
+    Trash2,
+    X,
+} from "lucide-react";
 
 function normalizeList(data) {
-    if (Array.isArray(data)) return data;
+    if (Array.isArray(data)) {
+        return data;
+    }
 
-    if (Array.isArray(data?.content)) return data.content;
-    if (Array.isArray(data?.data)) return data.data;
-    if (Array.isArray(data?.items)) return data.items;
-    if (Array.isArray(data?.results)) return data.results;
+    if (Array.isArray(data?.content)) {
+        return data.content;
+    }
+
+    if (Array.isArray(data?.data)) {
+        return data.data;
+    }
+
+    if (Array.isArray(data?.items)) {
+        return data.items;
+    }
+
+    if (Array.isArray(data?.results)) {
+        return data.results;
+    }
 
     if (data?._embedded) {
         const firstArray = Object.values(data._embedded).find((value) =>
             Array.isArray(value)
         );
 
-        if (firstArray) return firstArray;
+        if (firstArray) {
+            return firstArray;
+        }
     }
 
     if (data && typeof data === "object" && data.id !== undefined) {
@@ -48,7 +72,11 @@ function normalizeOptions(options = []) {
         const value = getOptionValue(option);
         const label = getOptionLabel(option);
 
-        if (value !== null && value !== undefined && String(value).trim() !== "") {
+        if (
+            value !== null &&
+            value !== undefined &&
+            String(value).trim() !== ""
+        ) {
             map.set(String(value), {
                 value: String(value),
                 label: String(label || value),
@@ -57,6 +85,15 @@ function normalizeOptions(options = []) {
     });
 
     return Array.from(map.values());
+}
+
+function getErrorMessage(error, fallback) {
+    return (
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        fallback
+    );
 }
 
 function EntityManager({
@@ -73,42 +110,96 @@ function EntityManager({
     extraActions,
     headerActions,
     onAfterSave,
+
+    // Phân trang server
+    paginated = false,
+    initialPageSize = 10,
+    requestParams = {},
+    defaultSortBy = "id",
+    defaultSortDirection = "desc",
 }) {
     const [items, setItems] = useState([]);
     const [keyword, setKeyword] = useState("");
+    const [debouncedKeyword, setDebouncedKeyword] = useState("");
+
     const [form, setForm] = useState({});
     const [editingItem, setEditingItem] = useState(null);
     const [showModal, setShowModal] = useState(false);
+
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
 
+    const [page, setPage] = useState(0);
+    const [pageSize, setPageSize] = useState(initialPageSize);
+    const [totalPages, setTotalPages] = useState(0);
+    const [totalElements, setTotalElements] = useState(0);
+
     const safeItems = Array.isArray(items) ? items : [];
+
+    const requestParamsKey = useMemo(
+        () => JSON.stringify(requestParams || {}),
+        [requestParams]
+    );
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedKeyword(keyword.trim());
+        }, 400);
+
+        return () => clearTimeout(timer);
+    }, [keyword]);
+
+    useEffect(() => {
+        if (paginated) {
+            setPage(0);
+        }
+    }, [debouncedKeyword, requestParamsKey, paginated]);
 
     useEffect(() => {
         loadItems();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [endpoint]);
+    }, [
+        endpoint,
+        page,
+        pageSize,
+        debouncedKeyword,
+        requestParamsKey,
+        paginated,
+    ]);
 
     const filteredItems = useMemo(() => {
+        if (paginated) {
+            return safeItems;
+        }
+
+        const normalizedKeyword = keyword.trim().toLowerCase();
+
+        if (!normalizedKeyword) {
+            return safeItems;
+        }
+
         return safeItems.filter((item) => {
-            const text = Object.values(item || {}).join(" ").toLowerCase();
-            return text.includes(keyword.toLowerCase());
+            const text = Object.values(item || {})
+                .join(" ")
+                .toLowerCase();
+
+            return text.includes(normalizedKeyword);
         });
-    }, [safeItems, keyword]);
+    }, [safeItems, keyword, paginated]);
 
     const makeEmptyForm = () => {
-        const obj = {};
+        const object = {};
 
         fields.forEach((field) => {
             if (field.type === "file") {
-                obj[field.name] = null;
+                object[field.name] = null;
             } else {
-                obj[field.name] = field.defaultValue ?? "";
+                object[field.name] = field.defaultValue ?? "";
             }
         });
 
-        return obj;
+        return object;
     };
 
     const loadItems = async () => {
@@ -116,14 +207,47 @@ function EntityManager({
             setLoading(true);
             setError("");
 
-            const res = await axiosClient.get(endpoint);
-            const list = normalizeList(res.data);
+            const params = paginated
+                ? {
+                    page,
+                    size: pageSize,
+                    sortBy: defaultSortBy,
+                    sortDirection: defaultSortDirection,
+                    ...(debouncedKeyword
+                        ? { keyword: debouncedKeyword }
+                        : {}),
+                    ...requestParams,
+                }
+                : requestParams;
+
+            const response = await axiosClient.get(endpoint, {
+                params,
+            });
+
+            const list = normalizeList(response.data);
 
             setItems(list);
-        } catch (err) {
-            console.error(err);
+
+            if (paginated) {
+                setTotalPages(Number(response.data?.totalPages || 0));
+                setTotalElements(Number(response.data?.totalElements || 0));
+            } else {
+                setTotalPages(list.length > 0 ? 1 : 0);
+                setTotalElements(list.length);
+            }
+        } catch (error) {
+            console.error(error);
+
             setItems([]);
-            setError("Không tải được dữ liệu. Kiểm tra API Gateway hoặc service.");
+            setTotalPages(0);
+            setTotalElements(0);
+
+            setError(
+                getErrorMessage(
+                    error,
+                    "Không tải được dữ liệu. Kiểm tra API Gateway hoặc service."
+                )
+            );
         } finally {
             setLoading(false);
         }
@@ -132,29 +256,38 @@ function EntityManager({
     const openCreate = () => {
         setEditingItem(null);
         setForm(makeEmptyForm());
+        setError("");
         setShowModal(true);
     };
 
     const openEdit = (item) => {
-        const obj = {};
+        const object = {};
 
         fields.forEach((field) => {
             if (field.type === "file") {
-                obj[field.name] = null;
+                object[field.name] = null;
                 return;
             }
 
-            let value = item?.[field.name] ?? field.defaultValue ?? "";
+            let value =
+                item?.[field.name] ??
+                field.defaultValue ??
+                "";
 
             if (field.type === "datetime-local" && value) {
                 value = String(value).slice(0, 16);
             }
 
-            obj[field.name] = value;
+            if (field.type === "select" && typeof value === "boolean") {
+                value = String(value);
+            }
+
+            object[field.name] = value;
         });
 
         setEditingItem(item);
-        setForm(obj);
+        setForm(object);
+        setError("");
         setShowModal(true);
     };
 
@@ -165,35 +298,50 @@ function EntityManager({
         setError("");
     };
 
-    const handleChange = (e) => {
-        const { name, type, files, value } = e.target;
+    const handleChange = (event) => {
+        const {
+            name,
+            type,
+            files,
+            value,
+        } = event.target;
 
         if (type === "file") {
-            setForm({
-                ...form,
+            setForm((previous) => ({
+                ...previous,
                 [name]: files?.[0] || null,
-            });
+            }));
+
             return;
         }
 
-        setForm({
-            ...form,
+        setForm((previous) => ({
+            ...previous,
             [name]: value,
-        });
+        }));
     };
 
     const defaultBuildPayload = () => {
         const payload = {};
 
         fields.forEach((field) => {
-            if (field.type === "file") return;
-            if (field.hideOnEdit && editingItem) return;
-            if (field.hideOnCreate && !editingItem) return;
+            if (field.type === "file") {
+                return;
+            }
+
+            if (field.hideOnEdit && editingItem) {
+                return;
+            }
+
+            if (field.hideOnCreate && !editingItem) {
+                return;
+            }
 
             const value = form[field.name];
 
             if (field.type === "number") {
-                payload[field.name] = value === "" ? null : Number(value);
+                payload[field.name] =
+                    value === "" ? null : Number(value);
             } else {
                 payload[field.name] = value;
             }
@@ -202,8 +350,8 @@ function EntityManager({
         return payload;
     };
 
-    const saveItem = async (e) => {
-        e.preventDefault();
+    const saveItem = async (event) => {
+        event.preventDefault();
 
         try {
             setSaving(true);
@@ -213,69 +361,138 @@ function EntityManager({
                 ? buildPayload(form, editingItem)
                 : defaultBuildPayload();
 
-            let res;
+            let response;
 
             if (editingItem) {
-                res = await axiosClient.put(`${endpoint}/${editingItem.id}`, payload);
+                response = await axiosClient.put(
+                    `${endpoint}/${editingItem.id}`,
+                    payload
+                );
             } else {
-                res = await axiosClient.post(createEndpoint || endpoint, payload);
+                response = await axiosClient.post(
+                    createEndpoint || endpoint,
+                    payload
+                );
             }
 
-            const savedItem = res?.data || editingItem;
+            const savedItem =
+                response?.data || editingItem;
 
             if (onAfterSave) {
-                await onAfterSave(savedItem, form, editingItem);
+                await onAfterSave(
+                    savedItem,
+                    form,
+                    editingItem
+                );
             }
 
-            alert(editingItem ? "Cập nhật thành công" : "Thêm mới thành công");
+            alert(
+                editingItem
+                    ? "Cập nhật thành công"
+                    : "Thêm mới thành công"
+            );
 
             closeModal();
-            loadItems();
-        } catch (err) {
-            console.error(err);
-            setError("Không lưu được dữ liệu. Kiểm tra API PUT/POST hoặc dữ liệu nhập.");
+
+            if (!editingItem && paginated) {
+                setPage(0);
+            }
+
+            await loadItems();
+        } catch (error) {
+            console.error(error);
+
+            setError(
+                getErrorMessage(
+                    error,
+                    "Không lưu được dữ liệu. Kiểm tra dữ liệu nhập."
+                )
+            );
         } finally {
             setSaving(false);
         }
     };
 
     const deleteItem = async (id) => {
-        if (!window.confirm("Bạn có chắc muốn xóa dòng này không?")) return;
+        const accepted = window.confirm(
+            "Bạn có chắc muốn xóa dòng này không?"
+        );
+
+        if (!accepted) {
+            return;
+        }
 
         try {
             setError("");
 
-            await axiosClient.delete(`${endpoint}/${id}`);
+            await axiosClient.delete(
+                `${endpoint}/${id}`
+            );
 
             alert("Xóa thành công");
-            loadItems();
-        } catch (err) {
-            console.error(err);
-            setError("Không xóa được dữ liệu.");
+
+            if (
+                paginated &&
+                items.length === 1 &&
+                page > 0
+            ) {
+                setPage((previous) => previous - 1);
+            } else {
+                await loadItems();
+            }
+        } catch (error) {
+            console.error(error);
+
+            setError(
+                getErrorMessage(
+                    error,
+                    "Không xóa được dữ liệu."
+                )
+            );
         }
     };
 
-    const renderCell = (item, col) => {
-        if (col.render) return col.render(item);
+    const renderCell = (item, column) => {
+        if (column.render) {
+            return column.render(item);
+        }
 
-        const value = item?.[col.key];
+        const value = item?.[column.key];
 
-        if (value === null || value === undefined || value === "") {
-            return <span className="text-slate-400">NULL</span>;
+        if (
+            value === null ||
+            value === undefined ||
+            value === ""
+        ) {
+            return (
+                <span className="text-slate-400">
+                    NULL
+                </span>
+            );
         }
 
         return String(value);
     };
 
     const visibleFields = fields.filter((field) => {
-        if (field.hideOnEdit && editingItem) return false;
-        if (field.hideOnCreate && !editingItem) return false;
+        if (field.hideOnEdit && editingItem) {
+            return false;
+        }
+
+        if (field.hideOnCreate && !editingItem) {
+            return false;
+        }
+
         return true;
     });
 
+    const canGoPrevious = page > 0;
+    const canGoNext =
+        totalPages > 0 && page < totalPages - 1;
+
     return (
         <div>
-            <div className="mb-8 flex items-center justify-between">
+            <div className="mb-8 flex items-center justify-between gap-4">
                 <div>
                     <p className="text-sm text-blue-600 font-semibold">
                         Admin / {title}
@@ -285,7 +502,9 @@ function EntityManager({
                         {title}
                     </h1>
 
-                    <p className="text-slate-500 mt-2">{subtitle}</p>
+                    <p className="text-slate-500 mt-2">
+                        {subtitle}
+                    </p>
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -293,6 +512,7 @@ function EntityManager({
 
                     {allowCreate && (
                         <button
+                            type="button"
                             onClick={openCreate}
                             className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 text-white font-semibold shadow hover:bg-blue-700"
                         >
@@ -310,28 +530,41 @@ function EntityManager({
             )}
 
             <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-5 border-b flex items-center justify-between gap-4">
-                    <div className="w-96 flex items-center gap-3 bg-slate-100 rounded-xl px-4 py-3">
-                        <Search size={18} className="text-slate-400" />
+                <div className="p-5 border-b flex flex-wrap items-center justify-between gap-4">
+                    <div className="w-full max-w-md flex items-center gap-3 bg-slate-100 rounded-xl px-4 py-3">
+                        <Search
+                            size={18}
+                            className="text-slate-400"
+                        />
 
                         <input
                             value={keyword}
-                            onChange={(e) => setKeyword(e.target.value)}
+                            onChange={(event) =>
+                                setKeyword(event.target.value)
+                            }
                             placeholder={`Tìm kiếm ${title.toLowerCase()}...`}
                             className="bg-transparent outline-none text-sm flex-1"
                         />
                     </div>
 
                     <button
+                        type="button"
                         onClick={loadItems}
                         disabled={loading}
                         className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-900 text-white hover:bg-black disabled:opacity-60"
                     >
                         <RefreshCw
                             size={17}
-                            className={loading ? "animate-spin" : ""}
+                            className={
+                                loading
+                                    ? "animate-spin"
+                                    : ""
+                            }
                         />
-                        {loading ? "Đang tải..." : "Reload"}
+
+                        {loading
+                            ? "Đang tải..."
+                            : "Reload"}
                     </button>
                 </div>
 
@@ -339,91 +572,236 @@ function EntityManager({
                     <table className="w-full text-left">
                         <thead className="bg-slate-50 text-slate-600 text-sm">
                             <tr>
-                                {columns.map((col) => (
+                                {columns.map((column) => (
                                     <th
-                                        key={col.key}
+                                        key={column.key}
                                         className="px-5 py-4 whitespace-nowrap"
                                     >
-                                        {col.label}
+                                        {column.label}
                                     </th>
                                 ))}
 
                                 <th className="px-5 py-4 text-right whitespace-nowrap">
-                                    Action
+                                    Thao tác
                                 </th>
                             </tr>
                         </thead>
 
                         <tbody>
-                            {filteredItems.map((item, index) => (
-                                <tr
-                                    key={item.id ?? index}
-                                    className="border-t hover:bg-blue-50/30"
-                                >
-                                    {columns.map((col) => (
-                                        <td
-                                            key={col.key}
-                                            className="px-5 py-4 align-top max-w-90 text-sm text-slate-700"
-                                        >
-                                            {renderCell(item, col)}
-                                        </td>
-                                    ))}
-
-                                    <td className="px-5 py-4 text-right whitespace-nowrap space-x-2">
-                                        {extraActions && extraActions(item, loadItems)}
-
-                                        {allowEdit && (
-                                            <button
-                                                onClick={() => openEdit(item)}
-                                                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600"
-                                            >
-                                                <Pencil size={15} />
-                                                Sửa
-                                            </button>
-                                        )}
-
-                                        {allowDelete && (
-                                            <button
-                                                onClick={() => deleteItem(item.id)}
-                                                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700"
-                                            >
-                                                <Trash2 size={15} />
-                                                Xóa
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-
-                            {filteredItems.length === 0 && (
+                            {loading &&
+                                filteredItems.length === 0 ? (
                                 <tr>
                                     <td
-                                        colSpan={columns.length + 1}
+                                        colSpan={
+                                            columns.length + 1
+                                        }
                                         className="px-5 py-10 text-center text-slate-500"
                                     >
-                                        Không có dữ liệu.
+                                        Đang tải dữ liệu...
                                     </td>
                                 </tr>
+                            ) : (
+                                filteredItems.map(
+                                    (item, index) => (
+                                        <tr
+                                            key={
+                                                item.id ??
+                                                index
+                                            }
+                                            className="border-t hover:bg-blue-50/30"
+                                        >
+                                            {columns.map(
+                                                (column) => (
+                                                    <td
+                                                        key={
+                                                            column.key
+                                                        }
+                                                        className="px-5 py-4 align-top max-w-90 text-sm text-slate-700"
+                                                    >
+                                                        {renderCell(
+                                                            item,
+                                                            column
+                                                        )}
+                                                    </td>
+                                                )
+                                            )}
+
+                                            <td className="px-5 py-4 text-right whitespace-nowrap space-x-2">
+                                                {extraActions &&
+                                                    extraActions(
+                                                        item,
+                                                        loadItems
+                                                    )}
+
+                                                {allowEdit && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            openEdit(
+                                                                item
+                                                            )
+                                                        }
+                                                        className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600"
+                                                    >
+                                                        <Pencil
+                                                            size={
+                                                                15
+                                                            }
+                                                        />
+                                                        Sửa
+                                                    </button>
+                                                )}
+
+                                                {allowDelete && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            deleteItem(
+                                                                item.id
+                                                            )
+                                                        }
+                                                        className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700"
+                                                    >
+                                                        <Trash2
+                                                            size={
+                                                                15
+                                                            }
+                                                        />
+                                                        Xóa
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    )
+                                )
                             )}
+
+                            {!loading &&
+                                filteredItems.length === 0 && (
+                                    <tr>
+                                        <td
+                                            colSpan={
+                                                columns.length +
+                                                1
+                                            }
+                                            className="px-5 py-10 text-center text-slate-500"
+                                        >
+                                            Không có dữ liệu.
+                                        </td>
+                                    </tr>
+                                )}
                         </tbody>
                     </table>
                 </div>
+
+                {paginated && (
+                    <div className="border-t px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+                        <div className="text-sm text-slate-600">
+                            Tổng cộng{" "}
+                            <strong>
+                                {totalElements}
+                            </strong>{" "}
+                            bản ghi
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <select
+                                value={pageSize}
+                                onChange={(event) => {
+                                    setPageSize(
+                                        Number(
+                                            event.target.value
+                                        )
+                                    );
+                                    setPage(0);
+                                }}
+                                className="border rounded-lg px-3 py-2 text-sm"
+                            >
+                                <option value={5}>
+                                    5 / trang
+                                </option>
+                                <option value={10}>
+                                    10 / trang
+                                </option>
+                                <option value={12}>
+                                    12 / trang
+                                </option>
+                                <option value={20}>
+                                    20 / trang
+                                </option>
+                                <option value={50}>
+                                    50 / trang
+                                </option>
+                            </select>
+
+                            <button
+                                type="button"
+                                disabled={
+                                    !canGoPrevious ||
+                                    loading
+                                }
+                                onClick={() =>
+                                    setPage(
+                                        (previous) =>
+                                            previous - 1
+                                    )
+                                }
+                                className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-slate-100 disabled:opacity-40"
+                            >
+                                <ChevronLeft
+                                    size={18}
+                                />
+                            </button>
+
+                            <span className="text-sm font-semibold text-slate-700">
+                                Trang{" "}
+                                {totalPages === 0
+                                    ? 0
+                                    : page + 1}{" "}
+                                / {totalPages}
+                            </span>
+
+                            <button
+                                type="button"
+                                disabled={
+                                    !canGoNext ||
+                                    loading
+                                }
+                                onClick={() =>
+                                    setPage(
+                                        (previous) =>
+                                            previous + 1
+                                    )
+                                }
+                                className="h-10 w-10 rounded-lg border flex items-center justify-center hover:bg-slate-100 disabled:opacity-40"
+                            >
+                                <ChevronRight
+                                    size={18}
+                                />
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {showModal && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
                     <form
                         onSubmit={saveItem}
-                        className="bg-white w-190 max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-6"
+                        className="bg-white w-[760px] max-w-full max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-6"
                     >
                         <div className="flex items-center justify-between mb-6">
                             <div>
                                 <p className="text-sm text-blue-600 font-semibold">
-                                    {editingItem ? "Update" : "Create"}
+                                    {editingItem
+                                        ? "Cập nhật"
+                                        : "Tạo mới"}
                                 </p>
 
                                 <h2 className="text-2xl font-bold text-slate-900">
-                                    {editingItem ? `Sửa ${title}` : `Thêm ${title}`}
+                                    {editingItem
+                                        ? `Sửa ${title}`
+                                        : `Thêm ${title}`}
                                 </h2>
                             </div>
 
@@ -436,86 +814,188 @@ function EntityManager({
                             </button>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {visibleFields.map((field) => {
                                 const fieldClass =
-                                    field.type === "textarea" || field.type === "file"
-                                        ? "col-span-2"
+                                    field.type ===
+                                        "textarea" ||
+                                        field.type === "file"
+                                        ? "md:col-span-2"
                                         : "";
 
-                                const options = normalizeOptions(field.options || []);
+                                const options =
+                                    normalizeOptions(
+                                        field.options || []
+                                    );
 
                                 return (
-                                    <div key={field.name} className={fieldClass}>
+                                    <div
+                                        key={field.name}
+                                        className={
+                                            fieldClass
+                                        }
+                                    >
                                         <label className="text-sm font-semibold text-slate-700">
                                             {field.label}
                                         </label>
 
-                                        {field.type === "select" ? (
+                                        {field.type ===
+                                            "select" ? (
                                             <select
-                                                name={field.name}
-                                                value={form[field.name] ?? ""}
-                                                onChange={handleChange}
-                                                required={field.required}
+                                                name={
+                                                    field.name
+                                                }
+                                                value={
+                                                    form[
+                                                    field
+                                                        .name
+                                                    ] ?? ""
+                                                }
+                                                onChange={
+                                                    handleChange
+                                                }
+                                                required={
+                                                    field.required
+                                                }
                                                 className="mt-2 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
                                             >
                                                 <option value="">
-                                                    {field.placeholder || "Chọn dữ liệu"}
+                                                    {field.placeholder ||
+                                                        "Chọn dữ liệu"}
                                                 </option>
 
-                                                {options.map((option, index) => (
-                                                    <option
-                                                        key={`${field.name}-${index}-${option.value}`}
-                                                        value={option.value}
-                                                    >
-                                                        {option.label}
-                                                    </option>
-                                                ))}
+                                                {options.map(
+                                                    (
+                                                        option
+                                                    ) => (
+                                                        <option
+                                                            key={`${field.name}-${option.value}`}
+                                                            value={
+                                                                option.value
+                                                            }
+                                                        >
+                                                            {
+                                                                option.label
+                                                            }
+                                                        </option>
+                                                    )
+                                                )}
                                             </select>
-                                        ) : field.type === "textarea" ? (
+                                        ) : field.type ===
+                                            "textarea" ? (
                                             <textarea
-                                                name={field.name}
-                                                value={form[field.name] ?? ""}
-                                                onChange={handleChange}
-                                                required={field.required}
-                                                rows={4}
-                                                placeholder={field.placeholder}
+                                                name={
+                                                    field.name
+                                                }
+                                                value={
+                                                    form[
+                                                    field
+                                                        .name
+                                                    ] ?? ""
+                                                }
+                                                onChange={
+                                                    handleChange
+                                                }
+                                                required={
+                                                    field.required
+                                                }
+                                                rows={5}
+                                                placeholder={
+                                                    field.placeholder
+                                                }
                                                 className="mt-2 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
                                             />
-                                        ) : field.type === "file" ? (
+                                        ) : field.type ===
+                                            "file" ? (
                                             <div>
                                                 <input
-                                                    name={field.name}
+                                                    name={
+                                                        field.name
+                                                    }
                                                     type="file"
-                                                    accept={field.accept || "*"}
-                                                    onChange={handleChange}
-                                                    required={field.required}
+                                                    accept={
+                                                        field.accept ||
+                                                        "*"
+                                                    }
+                                                    onChange={
+                                                        handleChange
+                                                    }
+                                                    required={
+                                                        field.required
+                                                    }
                                                     className="mt-2 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
                                                 />
 
-                                                {form[field.name]?.name && (
-                                                    <p className="text-sm text-blue-600 mt-2">
-                                                        File đã chọn: {form[field.name].name}
-                                                    </p>
-                                                )}
+                                                {form[
+                                                    field.name
+                                                ]?.name && (
+                                                        <p className="text-sm text-blue-600 mt-2">
+                                                            File đã
+                                                            chọn:{" "}
+                                                            {
+                                                                form[
+                                                                    field
+                                                                        .name
+                                                                ]
+                                                                    .name
+                                                            }
+                                                        </p>
+                                                    )}
 
                                                 {field.helper && (
                                                     <p className="text-xs text-slate-500 mt-2">
-                                                        {field.helper}
+                                                        {
+                                                            field.helper
+                                                        }
                                                     </p>
                                                 )}
                                             </div>
                                         ) : (
                                             <input
-                                                name={field.name}
-                                                type={field.type || "text"}
-                                                value={form[field.name] ?? ""}
-                                                onChange={handleChange}
-                                                required={field.required}
-                                                placeholder={field.placeholder}
+                                                name={
+                                                    field.name
+                                                }
+                                                type={
+                                                    field.type ||
+                                                    "text"
+                                                }
+                                                value={
+                                                    form[
+                                                    field
+                                                        .name
+                                                    ] ?? ""
+                                                }
+                                                onChange={
+                                                    handleChange
+                                                }
+                                                required={
+                                                    field.required
+                                                }
+                                                placeholder={
+                                                    field.placeholder
+                                                }
+                                                min={
+                                                    field.min
+                                                }
+                                                max={
+                                                    field.max
+                                                }
+                                                step={
+                                                    field.step
+                                                }
                                                 className="mt-2 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
                                             />
                                         )}
+
+                                        {field.helper &&
+                                            field.type !==
+                                            "file" && (
+                                                <p className="text-xs text-slate-500 mt-2">
+                                                    {
+                                                        field.helper
+                                                    }
+                                                </p>
+                                            )}
                                     </div>
                                 );
                             })}
@@ -535,7 +1015,9 @@ function EntityManager({
                                 disabled={saving}
                                 className="px-5 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-60"
                             >
-                                {saving ? "Đang lưu..." : "Lưu"}
+                                {saving
+                                    ? "Đang lưu..."
+                                    : "Lưu"}
                             </button>
                         </div>
                     </form>

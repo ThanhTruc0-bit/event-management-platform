@@ -1,7 +1,36 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { LogIn, Mail, Lock, Loader2, ShieldCheck } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+    AlertCircle,
+    Loader2,
+    Lock,
+    LogIn,
+    Mail,
+    ShieldCheck,
+} from "lucide-react";
 import axiosClient from "../api/axiosClient";
+
+function normalizeRole(role) {
+    return String(role || "")
+        .trim()
+        .replace(/^ROLE_/i, "")
+        .toUpperCase();
+}
+
+function getErrorMessage(error) {
+    const data = error?.response?.data;
+
+    if (typeof data === "string") {
+        return data;
+    }
+
+    return (
+        data?.message ||
+        data?.error ||
+        error?.message ||
+        "Email hoặc mật khẩu không đúng."
+    );
+}
 
 function Login() {
     const navigate = useNavigate();
@@ -11,58 +40,130 @@ function Login() {
         password: "",
     });
 
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
+    const [loading, setLoading] =
+        useState(false);
 
-    const handleChange = (e) => {
-        setForm({
-            ...form,
-            [e.target.name]: e.target.value,
-        });
+    const [error, setError] =
+        useState("");
+
+    const handleChange = (event) => {
+        const { name, value } =
+            event.target;
+
+        setForm((previousForm) => ({
+            ...previousForm,
+            [name]: value,
+        }));
     };
 
-    const handleLogin = async (e) => {
-        e.preventDefault();
+    const handleLogin = async (event) => {
+        event.preventDefault();
+
         setError("");
-        setLoading(true);
+
+        const email = form.email
+            .trim()
+            .toLowerCase();
+
+        if (!email) {
+            setError(
+                "Vui lòng nhập email."
+            );
+            return;
+        }
+
+        if (!form.password) {
+            setError(
+                "Vui lòng nhập mật khẩu."
+            );
+            return;
+        }
 
         try {
-            const res = await axiosClient.post("/auth-service/auth/login", form);
+            setLoading(true);
 
-            const { accessToken, refreshToken, userId, email, role } = res.data;
+            const response =
+                await axiosClient.post(
+                    "/auth-service/auth/login",
+                    {
+                        email,
+                        password:
+                            form.password,
+                    }
+                );
+
+            const {
+                accessToken,
+                refreshToken,
+                userId,
+                role,
+            } = response.data || {};
 
             if (!accessToken) {
-                setError("Đăng nhập thành công nhưng API không trả accessToken.");
+                throw new Error(
+                    "API không trả accessToken."
+                );
+            }
+
+            if (!refreshToken) {
+                throw new Error(
+                    "API không trả refreshToken."
+                );
+            }
+
+            const normalizedRole =
+                normalizeRole(role);
+
+            if (
+                normalizedRole !== "ADMIN"
+            ) {
+                localStorage.clear();
+
+                setError(
+                    "Tài khoản này không có quyền ADMIN."
+                );
+
                 return;
             }
 
-            if (role !== "ADMIN") {
-                localStorage.removeItem("token");
-                localStorage.removeItem("accessToken");
-                localStorage.removeItem("refreshToken");
-                localStorage.removeItem("user");
+            localStorage.removeItem(
+                "token"
+            );
 
-                setError("Tài khoản này không phải ADMIN nên không thể vào trang quản trị.");
-                return;
-            }
+            localStorage.removeItem(
+                "currentUser"
+            );
 
-            localStorage.removeItem("token");
+            localStorage.setItem(
+                "accessToken",
+                accessToken
+            );
 
-            localStorage.setItem("accessToken", accessToken);
-            localStorage.setItem("refreshToken", refreshToken);
+            localStorage.setItem(
+                "refreshToken",
+                refreshToken
+            );
+
             localStorage.setItem(
                 "user",
                 JSON.stringify({
                     userId,
                     email,
-                    role,
+                    role: normalizedRole,
                 })
             );
 
-            navigate("/");
-        } catch (err) {
-            console.error(err);
-            setError("Email hoặc mật khẩu không đúng.");
+            navigate("/", {
+                replace: true,
+            });
+        } catch (loginError) {
+            console.error(loginError);
+
+            setError(
+                getErrorMessage(
+                    loginError
+                )
+            );
         } finally {
             setLoading(false);
         }
@@ -86,19 +187,18 @@ function Login() {
                             </p>
 
                             <h1 className="text-4xl font-bold leading-tight">
-                                Đăng nhập hệ thống quản trị đặt vé
+                                Đăng nhập hệ thống quản trị
                             </h1>
 
                             <p className="mt-4 text-indigo-100 leading-7">
-                                Hệ thống sử dụng Auth Service, JWT Access Token,
-                                Refresh Token và Redis để xác thực tài khoản.
+                                Chỉ tài khoản có quyền ADMIN mới được truy cập trang quản trị.
                             </p>
                         </div>
 
                         <div className="space-y-3 text-sm text-indigo-100">
-                            <p>✅ Login qua auth-service</p>
-                            <p>✅ Chỉ tài khoản ADMIN mới vào được quản trị</p>
-                            <p>✅ FE tự gửi Authorization Bearer Token</p>
+                            <p>✅ Xác thực bằng JWT</p>
+                            <p>✅ Refresh Token lưu Redis</p>
+                            <p>✅ Chỉ ADMIN được truy cập</p>
                         </div>
                     </div>
                 </section>
@@ -112,21 +212,34 @@ function Login() {
 
                             <div>
                                 <h2 className="text-2xl font-bold text-slate-900">
-                                    Đăng nhập
+                                    Đăng nhập ADMIN
                                 </h2>
+
                                 <p className="text-sm text-slate-500">
-                                    Nhập tài khoản ADMIN để vào trang quản trị
+                                    Nhập tài khoản quản trị
                                 </p>
                             </div>
                         </div>
 
                         {error && (
-                            <div className="mb-5 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
-                                {error}
+                            <div className="mb-5 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex gap-2">
+                                <AlertCircle
+                                    size={19}
+                                    className="shrink-0"
+                                />
+
+                                <span>
+                                    {error}
+                                </span>
                             </div>
                         )}
 
-                        <form onSubmit={handleLogin} className="space-y-5">
+                        <form
+                            onSubmit={
+                                handleLogin
+                            }
+                            className="space-y-5"
+                        >
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-2">
                                     Email
@@ -141,9 +254,14 @@ function Login() {
                                     <input
                                         type="email"
                                         name="email"
-                                        value={form.email}
-                                        onChange={handleChange}
+                                        value={
+                                            form.email
+                                        }
+                                        onChange={
+                                            handleChange
+                                        }
                                         placeholder="admin@gmail.com"
+                                        autoComplete="email"
                                         className="w-full h-12 pl-11 pr-4 rounded-xl border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500"
                                         required
                                     />
@@ -164,9 +282,14 @@ function Login() {
                                     <input
                                         type="password"
                                         name="password"
-                                        value={form.password}
-                                        onChange={handleChange}
-                                        placeholder="123456"
+                                        value={
+                                            form.password
+                                        }
+                                        onChange={
+                                            handleChange
+                                        }
+                                        placeholder="Nhập mật khẩu"
+                                        autoComplete="current-password"
                                         className="w-full h-12 pl-11 pr-4 rounded-xl border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500"
                                         required
                                     />
@@ -175,23 +298,26 @@ function Login() {
 
                             <button
                                 type="submit"
-                                disabled={loading}
+                                disabled={
+                                    loading
+                                }
                                 className="w-full h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-70"
                             >
-                                {loading && <Loader2 size={18} className="animate-spin" />}
-                                Đăng nhập
+                                {loading && (
+                                    <Loader2
+                                        size={18}
+                                        className="animate-spin"
+                                    />
+                                )}
+
+                                {loading
+                                    ? "Đang đăng nhập..."
+                                    : "Đăng nhập"}
                             </button>
                         </form>
 
-                        <div className="mt-6 text-center text-sm text-slate-500">
-                            Chưa có tài khoản?{" "}
-                            <Link to="/register" className="text-indigo-600 font-semibold">
-                                Đăng ký tài khoản ADMIN
-                            </Link>
-                        </div>
-
                         <div className="mt-5 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
-                            Trang quản trị chỉ cho phép tài khoản có role ADMIN truy cập.
+                            Tài khoản ADMIN không được đăng ký công khai. ADMIN phải được tạo sẵn trong hệ thống.
                         </div>
                     </div>
                 </section>

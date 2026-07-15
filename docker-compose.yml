@@ -1,0 +1,127 @@
+services:
+  eureka-server:
+    build: ./eureka-server
+    container_name: eureka-server
+    ports:
+      - "8761:8761"
+
+  mysql-db:
+    image: mysql:8.0
+    container_name: mysql-db
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  redis-server:
+    image: redis
+    container_name: redis-server
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - eureka-server
+      - redis-server
+
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    ports:
+      - "8090:8090"
+    depends_on:
+      - eureka-server
+      - redis-server
+      - mysql-db
+
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    ports:
+      - "8083:8083"
+    depends_on:
+      - eureka-server
+      - mysql-db
+
+  event-service:
+    build: ./event-service
+    container_name: event-service
+    ports:
+      - "8084:8084"
+    volumes:
+      - ./event-service/uploads:/app/uploads
+    environment:
+      - FILE_UPLOAD_DIR=/app/uploads
+    depends_on:
+      - eureka-server
+      - redis-server
+      - mysql-db
+
+  seat-service:
+    build: ./seat-service
+    container_name: seat-service
+    ports:
+      - "8085:8085"
+    depends_on:
+      - eureka-server
+      - mysql-db
+
+  ticket-service:
+    build: ./ticket-service
+    container_name: ticket-service
+    ports:
+      - "8086:8086"
+    depends_on:
+      - eureka-server
+      - event-service
+      - seat-service
+      - mysql-db
+
+  payment-service:
+    build: ./payment-service
+    container_name: payment-service
+    ports:
+      - "8088:8088"
+    depends_on:
+      - eureka-server
+      - mysql-db
+
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    ports:
+      - "8089:8089"
+    depends_on:
+      - eureka-server
+      - rabbitmq
+
+  booking-service:
+    build: ./booking-service
+    container_name: booking-service
+    ports:
+      - "8087:8087"
+    depends_on:
+      - eureka-server
+      - user-service
+      - event-service
+      - seat-service
+      - payment-service
+      - notification-service
+      - rabbitmq
+      - mysql-db
+
+volumes:
+  mysql-data:

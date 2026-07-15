@@ -7,7 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
-
+import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,8 +29,7 @@ public class SeatService {
         return seatRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
-                        "Seat not found: " + id
-                ));
+                        "Seat not found: " + id));
     }
 
     public Seat createSeat(Seat seat) {
@@ -49,29 +48,25 @@ public class SeatService {
         if (request.getEventId() == null) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "eventId is required"
-            );
+                    "eventId is required");
         }
 
         if (request.getPrefix() == null || request.getPrefix().isBlank()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "prefix is required"
-            );
+                    "prefix is required");
         }
 
         if (request.getStartNumber() == null || request.getEndNumber() == null) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "startNumber and endNumber are required"
-            );
+                    "startNumber and endNumber are required");
         }
 
         if (request.getStartNumber() > request.getEndNumber()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "startNumber must be less than or equal to endNumber"
-            );
+                    "startNumber must be less than or equal to endNumber");
         }
 
         int total = request.getEndNumber() - request.getStartNumber() + 1;
@@ -79,8 +74,7 @@ public class SeatService {
         if (total > 1000) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Cannot generate more than 1000 seats at once"
-            );
+                    "Cannot generate more than 1000 seats at once");
         }
 
         String prefix = request.getPrefix().trim().toUpperCase();
@@ -103,8 +97,7 @@ public class SeatService {
 
             boolean exists = seatRepository.existsByEventIdAndSeatNumber(
                     request.getEventId(),
-                    seatNumber
-            );
+                    seatNumber);
 
             if (exists) {
                 continue;
@@ -127,8 +120,7 @@ public class SeatService {
         Seat oldSeat = seatRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
-                        "Seat not found: " + id
-                ));
+                        "Seat not found: " + id));
 
         oldSeat.setEventId(seat.getEventId());
         oldSeat.setSeatNumber(seat.getSeatNumber());
@@ -143,8 +135,7 @@ public class SeatService {
         Seat seat = seatRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
-                        "Seat not found: " + id
-                ));
+                        "Seat not found: " + id));
 
         seat.setStatus(status);
 
@@ -155,10 +146,31 @@ public class SeatService {
         if (!seatRepository.existsById(id)) {
             throw new ResponseStatusException(
                     HttpStatus.NOT_FOUND,
-                    "Seat not found: " + id
-            );
+                    "Seat not found: " + id);
         }
 
         seatRepository.deleteById(id);
+    }
+
+    @Transactional
+    public Seat reserveSeat(Long id, Long eventId) {
+        if (eventId == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "eventId is required");
+        }
+
+        int updated = seatRepository.reserveSeatIfAvailable(id, eventId);
+
+        if (updated == 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Ghế đã có người khác giữ hoặc đã được bán: " + id);
+        }
+
+        return seatRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Seat not found: " + id));
     }
 }

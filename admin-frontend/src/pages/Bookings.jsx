@@ -1,612 +1,1380 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import axiosClient from "../api/axiosClient";
 import {
+    useEffect,
+    useMemo,
+    useState,
+} from "react";
+
+import { Link } from "react-router-dom";
+
+import axiosClient from "../api/axiosClient";
+
+import {
+    Ban,
+    CheckCircle,
+    ChevronLeft,
+    ChevronRight,
+    Eye,
+    FilterX,
     Plus,
     RefreshCw,
     Search,
-    Eye,
-    CheckCircle,
-    Ban,
     Trash2,
     X,
 } from "lucide-react";
 
+function normalizeList(data) {
+    if (Array.isArray(data)) {
+        return data;
+    }
+
+    if (Array.isArray(data?.content)) {
+        return data.content;
+    }
+
+    return [];
+}
+
+function normalizePage(data) {
+    if (Array.isArray(data)) {
+        return {
+            content: data,
+            totalElements: data.length,
+            totalPages:
+                data.length > 0
+                    ? 1
+                    : 0,
+        };
+    }
+
+    return {
+        content:
+            Array.isArray(data?.content)
+                ? data.content
+                : [],
+
+        totalElements:
+            Number(data?.totalElements) || 0,
+
+        totalPages:
+            Number(data?.totalPages) || 0,
+    };
+}
+
+function getErrorMessage(
+    error,
+    fallback
+) {
+    return (
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        fallback
+    );
+}
+
 function Bookings() {
-    const [bookings, setBookings] = useState([]);
-    const [users, setUsers] = useState([]);
-    const [events, setEvents] = useState([]);
-    const [seats, setSeats] = useState([]);
+    const [bookings, setBookings] =
+        useState([]);
 
-    const [keyword, setKeyword] = useState("");
-    const [showCreate, setShowCreate] = useState(false);
-    const [error, setError] = useState("");
-    const [loadingSeats, setLoadingSeats] = useState(false);
+    const [users, setUsers] =
+        useState([]);
 
-    const [form, setForm] = useState({
-        userId: "",
-        eventId: "",
-        seatIds: [],
-    });
+    const [events, setEvents] =
+        useState([]);
+
+    const [seats, setSeats] =
+        useState([]);
+
+    const [
+        keywordInput,
+        setKeywordInput,
+    ] = useState("");
+
+    const [keyword, setKeyword] =
+        useState("");
+
+    const [status, setStatus] =
+        useState("ALL");
+
+    const [
+        userIdFilter,
+        setUserIdFilter,
+    ] = useState("");
+
+    const [
+        eventIdFilter,
+        setEventIdFilter,
+    ] = useState("");
+
+    const [minAmount, setMinAmount] =
+        useState("");
+
+    const [maxAmount, setMaxAmount] =
+        useState("");
+
+    const [page, setPage] =
+        useState(0);
+
+    const [size, setSize] =
+        useState(10);
+
+    const [
+        totalElements,
+        setTotalElements,
+    ] = useState(0);
+
+    const [
+        totalPages,
+        setTotalPages,
+    ] = useState(0);
+
+    const [loading, setLoading] =
+        useState(false);
+
+    const [
+        loadingSeats,
+        setLoadingSeats,
+    ] = useState(false);
+
+    const [showCreate, setShowCreate] =
+        useState(false);
+
+    const [error, setError] =
+        useState("");
+
+    const [form, setForm] =
+        useState({
+            userId: "",
+            eventId: "",
+            seatIds: [],
+        });
 
     useEffect(() => {
-        loadBookings();
-        loadUsers();
-        loadEvents();
+        loadReferenceData();
     }, []);
 
     useEffect(() => {
+        loadBookings();
+
+        // eslint-disable-next-line
+    }, [
+        page,
+        size,
+        keyword,
+        status,
+        userIdFilter,
+        eventIdFilter,
+        minAmount,
+        maxAmount,
+    ]);
+
+    useEffect(() => {
         if (form.eventId) {
-            loadSeatsByEvent(form.eventId);
+            loadSeatsByEvent(
+                form.eventId
+            );
         } else {
             setSeats([]);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [form.eventId]);
 
-    const filteredBookings = useMemo(() => {
-        return bookings.filter((booking) => {
-            const text = Object.values(booking || {}).join(" ").toLowerCase();
-            return text.includes(keyword.toLowerCase());
-        });
-    }, [bookings, keyword]);
+    const loadReferenceData =
+        async () => {
+            const [
+                userResult,
+                eventResult,
+            ] = await Promise.allSettled([
+                axiosClient.get(
+                    "/user-service/users",
+                    {
+                        params: {
+                            page: 0,
+                            size: 100,
+                        },
+                    }
+                ),
 
-    const loadBookings = async () => {
-        try {
-            setError("");
-            const res = await axiosClient.get("/booking-service/bookings");
-            setBookings(Array.isArray(res.data) ? res.data : []);
-        } catch (err) {
-            console.error(err);
-            setBookings([]);
-            setError("Không tải được danh sách booking.");
-        }
+                axiosClient.get(
+                    "/event-service/events",
+                    {
+                        params: {
+                            page: 0,
+                            size: 100,
+                            sortBy:
+                                "eventDate",
+                            sortDirection:
+                                "asc",
+                        },
+                    }
+                ),
+            ]);
+
+            setUsers(
+                userResult.status ===
+                    "fulfilled"
+                    ? normalizeList(
+                        userResult.value.data
+                    )
+                    : []
+            );
+
+            setEvents(
+                eventResult.status ===
+                    "fulfilled"
+                    ? normalizeList(
+                        eventResult.value.data
+                    )
+                    : []
+            );
+        };
+
+    const loadBookings =
+        async () => {
+            try {
+                setLoading(true);
+                setError("");
+
+                const response =
+                    await axiosClient.get(
+                        "/booking-service/bookings",
+                        {
+                            params: {
+                                page,
+                                size,
+
+                                keyword:
+                                    keyword ||
+                                    undefined,
+
+                                status:
+                                    status ===
+                                        "ALL"
+                                        ? undefined
+                                        : status,
+
+                                userId:
+                                    userIdFilter ||
+                                    undefined,
+
+                                eventId:
+                                    eventIdFilter ||
+                                    undefined,
+
+                                minAmount:
+                                    minAmount ||
+                                    undefined,
+
+                                maxAmount:
+                                    maxAmount ||
+                                    undefined,
+
+                                sortBy:
+                                    "bookingDate",
+
+                                sortDirection:
+                                    "desc",
+                            },
+                        }
+                    );
+
+                const pageData =
+                    normalizePage(
+                        response.data
+                    );
+
+                setBookings(
+                    pageData.content
+                );
+
+                setTotalElements(
+                    pageData.totalElements
+                );
+
+                setTotalPages(
+                    pageData.totalPages
+                );
+            } catch (requestError) {
+                console.error(
+                    requestError
+                );
+
+                setBookings([]);
+                setTotalElements(0);
+                setTotalPages(0);
+
+                setError(
+                    getErrorMessage(
+                        requestError,
+                        "Không tải được danh sách booking."
+                    )
+                );
+            } finally {
+                setLoading(false);
+            }
+        };
+
+    const loadSeatsByEvent =
+        async (eventId) => {
+            try {
+                setLoadingSeats(true);
+
+                const response =
+                    await axiosClient.get(
+                        `/seat-service/seats/event/${eventId}`
+                    );
+
+                setSeats(
+                    normalizeList(
+                        response.data
+                    )
+                );
+            } catch (requestError) {
+                console.error(
+                    requestError
+                );
+
+                setSeats([]);
+            } finally {
+                setLoadingSeats(false);
+            }
+        };
+
+    const userMap = useMemo(() => {
+        return new Map(
+            users.map((user) => [
+                String(user.id),
+                user,
+            ])
+        );
+    }, [users]);
+
+    const eventMap = useMemo(() => {
+        return new Map(
+            events.map((event) => [
+                String(event.id),
+                event,
+            ])
+        );
+    }, [events]);
+
+    const availableSeats =
+        useMemo(() => {
+            return seats.filter(
+                (seat) =>
+                    String(
+                        seat.status || ""
+                    ).toUpperCase() ===
+                    "AVAILABLE"
+            );
+        }, [seats]);
+
+    const selectedTotal =
+        useMemo(() => {
+            return availableSeats
+                .filter((seat) =>
+                    form.seatIds.includes(
+                        Number(seat.id)
+                    )
+                )
+                .reduce(
+                    (sum, seat) =>
+                        sum +
+                        Number(
+                            seat.price || 0
+                        ),
+                    0
+                );
+        }, [
+            availableSeats,
+            form.seatIds,
+        ]);
+
+    const submitSearch =
+        (event) => {
+            event.preventDefault();
+
+            setKeyword(
+                keywordInput.trim()
+            );
+
+            setPage(0);
+        };
+
+    const clearFilters = () => {
+        setKeywordInput("");
+        setKeyword("");
+        setStatus("ALL");
+        setUserIdFilter("");
+        setEventIdFilter("");
+        setMinAmount("");
+        setMaxAmount("");
+        setPage(0);
     };
 
-    const loadUsers = async () => {
-        try {
-            const res = await axiosClient.get("/user-service/users");
-            setUsers(Array.isArray(res.data) ? res.data : []);
-        } catch (err) {
-            console.error(err);
-            setUsers([]);
-        }
-    };
-
-    const loadEvents = async () => {
-        try {
-            const res = await axiosClient.get("/event-service/events");
-            setEvents(Array.isArray(res.data) ? res.data : []);
-        } catch (err) {
-            console.error(err);
-            setEvents([]);
-        }
-    };
-
-    const loadSeatsByEvent = async (eventId) => {
-        try {
-            setLoadingSeats(true);
-            const res = await axiosClient.get(`/seat-service/seats/event/${eventId}`);
-            const list = Array.isArray(res.data) ? res.data : [];
-
-            setSeats(list);
-        } catch (err) {
-            console.error(err);
-            setSeats([]);
-        } finally {
-            setLoadingSeats(false);
-        }
-    };
-
-    const getUserName = (userId) => {
-        const user = users.find((u) => String(u.id) === String(userId));
-        return user ? `${user.name || user.email}` : `User #${userId}`;
-    };
-
-    const getEventName = (eventId) => {
-        const event = events.find((e) => String(e.id) === String(eventId));
-        return event ? event.name : `Event #${eventId}`;
-    };
-
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-
-        if (name === "eventId") {
-            setForm({
-                ...form,
-                eventId: value,
-                seatIds: [],
-            });
-            return;
-        }
-
-        setForm({
-            ...form,
-            [name]: value,
-        });
-    };
-
-    const toggleSeat = (seatId) => {
+    const toggleSeat = (
+        seatId
+    ) => {
         const id = Number(seatId);
 
-        if (form.seatIds.includes(id)) {
-            setForm({
-                ...form,
-                seatIds: form.seatIds.filter((item) => item !== id),
-            });
-        } else {
-            setForm({
-                ...form,
-                seatIds: [...form.seatIds, id],
-            });
-        }
+        setForm((current) => {
+            const selected =
+                current.seatIds.includes(
+                    id
+                );
+
+            if (
+                !selected &&
+                current.seatIds.length >= 4
+            ) {
+                alert(
+                    "Mỗi booking chỉ được chọn tối đa 4 ghế."
+                );
+
+                return current;
+            }
+
+            return {
+                ...current,
+
+                seatIds: selected
+                    ? current.seatIds.filter(
+                        (value) =>
+                            value !== id
+                    )
+                    : [
+                        ...current.seatIds,
+                        id,
+                    ],
+            };
+        });
     };
 
-    const resetForm = () => {
+    const closeCreate = () => {
+        setShowCreate(false);
+
         setForm({
             userId: "",
             eventId: "",
             seatIds: [],
         });
+
         setSeats([]);
     };
 
-    const createBooking = async (e) => {
-        e.preventDefault();
+    const createBooking =
+        async (event) => {
+            event.preventDefault();
 
-        if (!form.userId) {
-            alert("Vui lòng chọn user.");
-            return;
-        }
-
-        if (!form.eventId) {
-            alert("Vui lòng chọn event.");
-            return;
-        }
-
-        if (form.seatIds.length === 0) {
-            alert("Vui lòng chọn ít nhất 1 ghế.");
-            return;
-        }
-
-        try {
-            setError("");
-
-            await axiosClient.post("/booking-service/bookings", {
-                userId: Number(form.userId),
-                eventId: Number(form.eventId),
-                seatIds: form.seatIds,
-            });
-
-            alert("Tạo booking thành công");
-
-            setShowCreate(false);
-            resetForm();
-            loadBookings();
-
-            if (form.eventId) {
-                loadSeatsByEvent(form.eventId);
+            if (!form.userId) {
+                alert(
+                    "Vui lòng chọn user."
+                );
+                return;
             }
-        } catch (err) {
-            console.error(err);
-            setError("Không tạo được booking. Kiểm tra User, Event, Seat hoặc booking-service.");
-        }
-    };
 
-    const markPaid = async (id) => {
-        if (!window.confirm("Xác nhận booking này đã thanh toán và tạo vé QR?")) {
-            return;
-        }
+            if (!form.eventId) {
+                alert(
+                    "Vui lòng chọn event."
+                );
+                return;
+            }
 
-        try {
-            setError("");
+            if (
+                form.seatIds.length === 0
+            ) {
+                alert(
+                    "Vui lòng chọn ít nhất một ghế."
+                );
+                return;
+            }
 
-            await axiosClient.put(`/booking-service/bookings/${id}/status?status=PAID`);
+            try {
+                setError("");
 
-            alert("Đã cập nhật booking thành PAID và tạo vé QR");
-            loadBookings();
-        } catch (err) {
-            console.error(err);
-            console.log("PAID error response:", err.response?.data);
+                await axiosClient.post(
+                    "/booking-service/bookings",
+                    {
+                        userId: Number(
+                            form.userId
+                        ),
 
-            const message =
-                err.response?.data?.message ||
-                err.response?.data?.error ||
-                err.response?.data?.path ||
-                "Không cập nhật được trạng thái PAID.";
+                        eventId: Number(
+                            form.eventId
+                        ),
 
-            setError(message);
-            alert(message);
-        }
-    };
+                        seatIds:
+                            form.seatIds,
+                    }
+                );
 
-    const cancelBooking = async (id) => {
-        if (!window.confirm("Bạn có chắc muốn hủy booking này không?")) return;
+                closeCreate();
+                setPage(0);
 
-        try {
-            setError("");
-            await axiosClient.put(`/booking-service/bookings/${id}/cancel`);
-            alert("Đã hủy booking");
-            loadBookings();
-        } catch (err) {
-            console.error(err);
-            setError("Không hủy được booking.");
-        }
-    };
+                await loadBookings();
+            } catch (requestError) {
+                const message =
+                    getErrorMessage(
+                        requestError,
+                        "Không tạo được booking."
+                    );
 
-    const deleteBooking = async (id) => {
-        if (!window.confirm("Bạn có chắc muốn xóa booking này không?")) return;
+                setError(message);
+                alert(message);
+            }
+        };
 
-        try {
-            setError("");
-            await axiosClient.delete(`/booking-service/bookings/${id}`);
-            alert("Đã xóa booking");
-            loadBookings();
-        } catch (err) {
-            console.error(err);
-            setError("Không xóa được booking.");
-        }
-    };
+    const markPaid =
+        async (bookingId) => {
+            if (
+                !window.confirm(
+                    "Xác nhận booking đã thanh toán và phát hành vé QR?"
+                )
+            ) {
+                return;
+            }
 
-    const getStatusClass = (status) => {
-        if (status === "PAID") return "bg-green-100 text-green-700";
-        if (status === "CANCELLED") return "bg-red-100 text-red-700";
-        if (status === "EXPIRED") return "bg-slate-100 text-slate-700";
-        return "bg-yellow-100 text-yellow-700";
-    };
+            try {
+                await axiosClient.put(
+                    `/booking-service/bookings/${bookingId}/status`,
+                    null,
+                    {
+                        params: {
+                            status: "PAID",
+                        },
+                    }
+                );
 
-    const availableSeats = seats.filter((seat) => seat.status === "AVAILABLE");
+                await loadBookings();
+            } catch (requestError) {
+                alert(
+                    getErrorMessage(
+                        requestError,
+                        "Không cập nhật được booking."
+                    )
+                );
+            }
+        };
 
-    const selectedTotal = availableSeats
-        .filter((seat) => form.seatIds.includes(Number(seat.id)))
-        .reduce((sum, seat) => sum + Number(seat.price || 0), 0);
+    const cancelBooking =
+        async (bookingId) => {
+            if (
+                !window.confirm(
+                    "Hủy booking chưa thanh toán này?"
+                )
+            ) {
+                return;
+            }
+
+            try {
+                await axiosClient.put(
+                    `/booking-service/bookings/${bookingId}/cancel`
+                );
+
+                await loadBookings();
+            } catch (requestError) {
+                alert(
+                    getErrorMessage(
+                        requestError,
+                        "Không hủy được booking."
+                    )
+                );
+            }
+        };
+
+    const deleteBooking =
+        async (bookingId) => {
+            if (
+                !window.confirm(
+                    "Xóa booking này khỏi database?"
+                )
+            ) {
+                return;
+            }
+
+            try {
+                await axiosClient.delete(
+                    `/booking-service/bookings/${bookingId}`
+                );
+
+                await loadBookings();
+            } catch (requestError) {
+                alert(
+                    getErrorMessage(
+                        requestError,
+                        "Không xóa được booking."
+                    )
+                );
+            }
+        };
+
+    const getStatusClass =
+        (value) => {
+            const normalized =
+                String(
+                    value || ""
+                ).toUpperCase();
+
+            if (
+                normalized === "PAID"
+            ) {
+                return "bg-green-100 text-green-700";
+            }
+
+            if (
+                normalized ===
+                "CANCELLED"
+            ) {
+                return "bg-red-100 text-red-700";
+            }
+
+            if (
+                normalized ===
+                "EXPIRED"
+            ) {
+                return "bg-slate-100 text-slate-700";
+            }
+
+            if (
+                normalized === "FAILED"
+            ) {
+                return "bg-rose-100 text-rose-700";
+            }
+
+            return "bg-yellow-100 text-yellow-700";
+        };
 
     return (
-        <div>
-            <div className="mb-8 flex items-center justify-between">
+        <div className="space-y-6">
+            <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                    <p className="text-sm text-blue-600 font-semibold">
+                    <p className="text-sm font-semibold text-blue-600">
                         Admin / Bookings
                     </p>
 
-                    <h1 className="text-3xl font-bold text-slate-900 mt-1">
+                    <h1 className="mt-1 text-3xl font-bold text-slate-900">
                         Booking Management
                     </h1>
 
-                    <p className="text-slate-500 mt-2">
-                        Quản lý đặt vé: chọn user, event, ghế còn trống và tạo booking.
+                    <p className="mt-2 text-slate-500">
+                        Tìm kiếm, lọc và
+                        phân trang từ
+                        Booking Service.
                     </p>
                 </div>
 
                 <button
-                    onClick={() => setShowCreate(true)}
-                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 text-white font-semibold shadow hover:bg-blue-700"
+                    type="button"
+                    onClick={() =>
+                        setShowCreate(true)
+                    }
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white"
                 >
                     <Plus size={18} />
                     Tạo booking
                 </button>
-            </div>
+            </header>
 
             {error && (
-                <div className="mb-6 rounded-2xl bg-red-50 border border-red-200 text-red-700 px-5 py-4">
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-700">
                     {error}
                 </div>
             )}
 
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-5 border-b flex items-center justify-between gap-4">
-                    <div className="w-96 flex items-center gap-3 bg-slate-100 rounded-xl px-4 py-3">
-                        <Search size={18} className="text-slate-400" />
+            <form
+                onSubmit={submitSearch}
+                className="grid grid-cols-1 gap-4 rounded-3xl border border-slate-200 bg-white p-5 md:grid-cols-2 xl:grid-cols-7"
+            >
+                <div className="flex items-center gap-3 rounded-xl bg-slate-100 px-4 py-3 xl:col-span-2">
+                    <Search
+                        size={18}
+                        className="text-slate-400"
+                    />
 
-                        <input
-                            value={keyword}
-                            onChange={(e) => setKeyword(e.target.value)}
-                            placeholder="Tìm booking theo mã, user, event..."
-                            className="bg-transparent outline-none text-sm flex-1"
-                        />
-                    </div>
+                    <input
+                        value={
+                            keywordInput
+                        }
+                        onChange={(event) =>
+                            setKeywordInput(
+                                event.target
+                                    .value
+                            )
+                        }
+                        placeholder="Mã booking, ID, status..."
+                        className="min-w-0 flex-1 bg-transparent outline-none"
+                    />
+                </div>
+
+                <select
+                    value={status}
+                    onChange={(event) => {
+                        setStatus(
+                            event.target.value
+                        );
+                        setPage(0);
+                    }}
+                    className="h-12 rounded-xl border px-4"
+                >
+                    <option value="ALL">
+                        Tất cả trạng thái
+                    </option>
+                    <option value="PENDING">
+                        PENDING
+                    </option>
+                    <option value="PAID">
+                        PAID
+                    </option>
+                    <option value="CANCELLED">
+                        CANCELLED
+                    </option>
+                    <option value="EXPIRED">
+                        EXPIRED
+                    </option>
+                    <option value="FAILED">
+                        FAILED
+                    </option>
+                </select>
+
+                <select
+                    value={userIdFilter}
+                    onChange={(event) => {
+                        setUserIdFilter(
+                            event.target.value
+                        );
+                        setPage(0);
+                    }}
+                    className="h-12 rounded-xl border px-4"
+                >
+                    <option value="">
+                        Tất cả user
+                    </option>
+
+                    {users.map((user) => (
+                        <option
+                            key={user.id}
+                            value={user.id}
+                        >
+                            {user.name ||
+                                user.email}{" "}
+                            (#{user.id})
+                        </option>
+                    ))}
+                </select>
+
+                <select
+                    value={
+                        eventIdFilter
+                    }
+                    onChange={(event) => {
+                        setEventIdFilter(
+                            event.target.value
+                        );
+                        setPage(0);
+                    }}
+                    className="h-12 rounded-xl border px-4"
+                >
+                    <option value="">
+                        Tất cả event
+                    </option>
+
+                    {events.map((event) => (
+                        <option
+                            key={event.id}
+                            value={event.id}
+                        >
+                            {event.name}
+                        </option>
+                    ))}
+                </select>
+
+                <input
+                    type="number"
+                    min="0"
+                    value={minAmount}
+                    onChange={(event) => {
+                        setMinAmount(
+                            event.target.value
+                        );
+                        setPage(0);
+                    }}
+                    placeholder="Giá từ"
+                    className="h-12 rounded-xl border px-4"
+                />
+
+                <input
+                    type="number"
+                    min="0"
+                    value={maxAmount}
+                    onChange={(event) => {
+                        setMaxAmount(
+                            event.target.value
+                        );
+                        setPage(0);
+                    }}
+                    placeholder="Giá đến"
+                    className="h-12 rounded-xl border px-4"
+                />
+
+                <div className="flex gap-2 xl:col-span-7">
+                    <button
+                        type="submit"
+                        className="rounded-xl bg-slate-900 px-6 py-3 font-semibold text-white"
+                    >
+                        Tìm kiếm
+                    </button>
 
                     <button
-                        onClick={loadBookings}
-                        className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-900 text-white hover:bg-black"
+                        type="button"
+                        onClick={
+                            clearFilters
+                        }
+                        className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-5 py-3 font-semibold"
                     >
-                        <RefreshCw size={17} />
-                        Reload
+                        <FilterX
+                            size={18}
+                        />
+                        Xóa lọc
                     </button>
+                </div>
+            </form>
+
+            <section className="overflow-hidden rounded-3xl border bg-white">
+                <div className="flex items-center justify-between border-b p-5">
+                    <div className="font-semibold">
+                        Tổng cộng{" "}
+                        {totalElements}{" "}
+                        booking
+                    </div>
+
+                    <div className="flex gap-3">
+                        <select
+                            value={size}
+                            onChange={(
+                                event
+                            ) => {
+                                setSize(
+                                    Number(
+                                        event
+                                            .target
+                                            .value
+                                    )
+                                );
+                                setPage(0);
+                            }}
+                            className="rounded-xl border px-3"
+                        >
+                            <option value={5}>
+                                5 / trang
+                            </option>
+                            <option value={10}>
+                                10 / trang
+                            </option>
+                            <option value={20}>
+                                20 / trang
+                            </option>
+                        </select>
+
+                        <button
+                            type="button"
+                            onClick={
+                                loadBookings
+                            }
+                            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-white"
+                        >
+                            <RefreshCw
+                                size={17}
+                            />
+                            Reload
+                        </button>
+                    </div>
                 </div>
 
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
-                        <thead className="bg-slate-50 text-slate-600 text-sm">
+                        <thead className="bg-slate-50 text-sm text-slate-600">
                             <tr>
-                                <th className="px-5 py-4">ID</th>
-                                <th className="px-5 py-4">Booking Code</th>
-                                <th className="px-5 py-4">User</th>
-                                <th className="px-5 py-4">Event</th>
-                                <th className="px-5 py-4">Total Amount</th>
-                                <th className="px-5 py-4">Status</th>
-                                <th className="px-5 py-4">Booking Date</th>
-                                <th className="px-5 py-4 text-right">Action</th>
+                                <th className="px-5 py-4">
+                                    ID
+                                </th>
+                                <th className="px-5 py-4">
+                                    Booking
+                                </th>
+                                <th className="px-5 py-4">
+                                    User
+                                </th>
+                                <th className="px-5 py-4">
+                                    Event
+                                </th>
+                                <th className="px-5 py-4">
+                                    Amount
+                                </th>
+                                <th className="px-5 py-4">
+                                    Status
+                                </th>
+                                <th className="px-5 py-4">
+                                    Ngày tạo
+                                </th>
+                                <th className="px-5 py-4">
+                                    Hết hạn
+                                </th>
+                                <th className="px-5 py-4 text-right">
+                                    Thao tác
+                                </th>
                             </tr>
                         </thead>
 
                         <tbody>
-                            {filteredBookings.map((booking) => (
-                                <tr
-                                    key={booking.id}
-                                    className="border-t hover:bg-blue-50/30"
-                                >
-                                    <td className="px-5 py-4 text-sm">{booking.id}</td>
+                            {bookings.map(
+                                (booking) => {
+                                    const user =
+                                        userMap.get(
+                                            String(
+                                                booking.userId
+                                            )
+                                        );
 
-                                    <td className="px-5 py-4">
-                                        <div className="font-bold text-slate-900">
-                                            {booking.bookingCode || `BOOKING-${booking.id}`}
-                                        </div>
-                                        <div className="text-xs text-slate-500 mt-1">
-                                            Booking #{booking.id}
-                                        </div>
-                                    </td>
+                                    const event =
+                                        eventMap.get(
+                                            String(
+                                                booking.eventId
+                                            )
+                                        );
 
-                                    <td className="px-5 py-4 text-sm">
-                                        <div className="font-semibold text-slate-800">
-                                            {getUserName(booking.userId)}
-                                        </div>
-                                        <div className="text-xs text-slate-500">
-                                            User ID: {booking.userId}
-                                        </div>
-                                    </td>
-
-                                    <td className="px-5 py-4 text-sm">
-                                        <div className="font-semibold text-slate-800">
-                                            {getEventName(booking.eventId)}
-                                        </div>
-                                        <div className="text-xs text-slate-500">
-                                            Event ID: {booking.eventId}
-                                        </div>
-                                    </td>
-
-                                    <td className="px-5 py-4 font-semibold">
-                                        {Number(booking.totalAmount || 0).toLocaleString()} đ
-                                    </td>
-
-                                    <td className="px-5 py-4">
-                                        <span
-                                            className={`text-xs px-3 py-1 rounded-full font-bold ${getStatusClass(
-                                                booking.status
-                                            )}`}
+                                    return (
+                                        <tr
+                                            key={
+                                                booking.id
+                                            }
+                                            className="border-t"
                                         >
-                                            {booking.status || "PENDING"}
-                                        </span>
-                                    </td>
+                                            <td className="px-5 py-4">
+                                                #
+                                                {
+                                                    booking.id
+                                                }
+                                            </td>
 
-                                    <td className="px-5 py-4 text-sm text-slate-600">
-                                        {booking.bookingDate
-                                            ? String(booking.bookingDate).replace("T", " ")
-                                            : "NULL"}
-                                    </td>
+                                            <td className="px-5 py-4 font-bold">
+                                                {
+                                                    booking.bookingCode
+                                                }
+                                            </td>
 
-                                    <td className="px-5 py-4 text-right whitespace-nowrap space-x-2">
-                                        <Link
-                                            to={`/bookings/${booking.id}`}
-                                            className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-slate-800 text-white hover:bg-black"
+                                            <td className="px-5 py-4">
+                                                {user?.name ||
+                                                    user?.email ||
+                                                    `User #${booking.userId}`}
+                                            </td>
+
+                                            <td className="px-5 py-4">
+                                                {event?.name ||
+                                                    `Event #${booking.eventId}`}
+                                            </td>
+
+                                            <td className="px-5 py-4 font-semibold">
+                                                {Number(
+                                                    booking.totalAmount ||
+                                                    0
+                                                ).toLocaleString(
+                                                    "vi-VN"
+                                                )}{" "}
+                                                đ
+                                            </td>
+
+                                            <td className="px-5 py-4">
+                                                <span
+                                                    className={`rounded-full px-3 py-1 text-xs font-bold ${getStatusClass(
+                                                        booking.status
+                                                    )}`}
+                                                >
+                                                    {
+                                                        booking.status
+                                                    }
+                                                </span>
+                                            </td>
+
+                                            <td className="px-5 py-4 text-sm">
+                                                {booking.bookingDate
+                                                    ? new Date(
+                                                        booking.bookingDate
+                                                    ).toLocaleString(
+                                                        "vi-VN"
+                                                    )
+                                                    : "NULL"}
+                                            </td>
+
+                                            <td className="px-5 py-4 text-sm">
+                                                {booking.expiresAt
+                                                    ? new Date(
+                                                        booking.expiresAt
+                                                    ).toLocaleString(
+                                                        "vi-VN"
+                                                    )
+                                                    : "NULL"}
+                                            </td>
+
+                                            <td className="space-x-2 whitespace-nowrap px-5 py-4 text-right">
+                                                <Link
+                                                    to={`/bookings/${booking.id}`}
+                                                    className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-2 text-white"
+                                                >
+                                                    <Eye
+                                                        size={
+                                                            15
+                                                        }
+                                                    />
+                                                    Chi
+                                                    tiết
+                                                </Link>
+
+                                                {booking.status ===
+                                                    "PENDING" && (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    markPaid(
+                                                                        booking.id
+                                                                    )
+                                                                }
+                                                                className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-2 text-white"
+                                                            >
+                                                                <CheckCircle
+                                                                    size={
+                                                                        15
+                                                                    }
+                                                                />
+                                                                PAID
+                                                            </button>
+
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    cancelBooking(
+                                                                        booking.id
+                                                                    )
+                                                                }
+                                                                className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-2 text-white"
+                                                            >
+                                                                <Ban
+                                                                    size={
+                                                                        15
+                                                                    }
+                                                                />
+                                                                Hủy
+                                                            </button>
+                                                        </>
+                                                    )}
+
+                                                {booking.status !==
+                                                    "PAID" && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                deleteBooking(
+                                                                    booking.id
+                                                                )
+                                                            }
+                                                            className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-2 text-white"
+                                                        >
+                                                            <Trash2
+                                                                size={
+                                                                    15
+                                                                }
+                                                            />
+                                                            Xóa
+                                                        </button>
+                                                    )}
+                                            </td>
+                                        </tr>
+                                    );
+                                }
+                            )}
+
+                            {!loading &&
+                                bookings.length ===
+                                0 && (
+                                    <tr>
+                                        <td
+                                            colSpan={
+                                                9
+                                            }
+                                            className="px-5 py-12 text-center text-slate-500"
                                         >
-                                            <Eye size={15} />
-                                            Chi tiết
-                                        </Link>
+                                            Không có
+                                            booking
+                                            phù hợp.
+                                        </td>
+                                    </tr>
+                                )}
 
-                                        {booking.status === "PENDING" && (
-                                            <button
-                                                onClick={() => markPaid(booking.id)}
-                                                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
-                                            >
-                                                <CheckCircle size={15} />
-                                                PAID
-                                            </button>
-                                        )}
-
-                                        <button
-                                            onClick={() => cancelBooking(booking.id)}
-                                            className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600"
-                                        >
-                                            <Ban size={15} />
-                                            Hủy
-                                        </button>
-
-                                        <button
-                                            onClick={() => deleteBooking(booking.id)}
-                                            className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700"
-                                        >
-                                            <Trash2 size={15} />
-                                            Xóa
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-
-                            {filteredBookings.length === 0 && (
+                            {loading && (
                                 <tr>
                                     <td
-                                        colSpan="8"
-                                        className="px-5 py-10 text-center text-slate-500"
+                                        colSpan={9}
+                                        className="px-5 py-12 text-center"
                                     >
-                                        Không có booking nào.
+                                        Đang tải...
                                     </td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
                 </div>
-            </div>
+
+                <div className="flex items-center justify-between border-t p-5">
+                    <span>
+                        Trang{" "}
+                        {totalPages === 0
+                            ? 0
+                            : page + 1}
+                        /{totalPages}
+                    </span>
+
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            disabled={
+                                page === 0
+                            }
+                            onClick={() =>
+                                setPage(
+                                    (
+                                        current
+                                    ) =>
+                                        Math.max(
+                                            0,
+                                            current -
+                                            1
+                                        )
+                                )
+                            }
+                            className="flex h-10 w-10 items-center justify-center rounded-xl border disabled:opacity-40"
+                        >
+                            <ChevronLeft
+                                size={18}
+                            />
+                        </button>
+
+                        <button
+                            type="button"
+                            disabled={
+                                page + 1 >=
+                                totalPages
+                            }
+                            onClick={() =>
+                                setPage(
+                                    (
+                                        current
+                                    ) =>
+                                        current +
+                                        1
+                                )
+                            }
+                            className="flex h-10 w-10 items-center justify-center rounded-xl border disabled:opacity-40"
+                        >
+                            <ChevronRight
+                                size={18}
+                            />
+                        </button>
+                    </div>
+                </div>
+            </section>
 
             {showCreate && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
                     <form
-                        onSubmit={createBooking}
-                        className="bg-white w-220 max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-6"
+                        onSubmit={
+                            createBooking
+                        }
+                        className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white p-6"
                     >
-                        <div className="flex items-center justify-between mb-6">
-                            <div>
-                                <p className="text-sm text-blue-600 font-semibold">
-                                    Create Booking
-                                </p>
-
-                                <h2 className="text-2xl font-bold text-slate-900">
-                                    Tạo booking mới
-                                </h2>
-
-                                <p className="text-sm text-slate-500 mt-1">
-                                    Chọn user, sự kiện và ghế còn trống để tạo booking.
-                                </p>
-                            </div>
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-2xl font-bold">
+                                Tạo booking
+                            </h2>
 
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setShowCreate(false);
-                                    resetForm();
-                                }}
-                                className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200"
+                                onClick={
+                                    closeCreate
+                                }
+                                className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100"
                             >
-                                <X size={20} />
+                                <X
+                                    size={18}
+                                />
                             </button>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-5">
-                            <div>
-                                <label className="text-sm font-semibold text-slate-700">
-                                    User
-                                </label>
+                        <div className="mt-6 grid gap-4 md:grid-cols-2">
+                            <select
+                                value={
+                                    form.userId
+                                }
+                                onChange={(
+                                    event
+                                ) =>
+                                    setForm(
+                                        (
+                                            current
+                                        ) => ({
+                                            ...current,
+                                            userId:
+                                                event
+                                                    .target
+                                                    .value,
+                                        })
+                                    )
+                                }
+                                className="h-12 rounded-xl border px-4"
+                            >
+                                <option value="">
+                                    Chọn user
+                                </option>
 
-                                <select
-                                    name="userId"
-                                    value={form.userId}
-                                    onChange={handleChange}
-                                    required
-                                    className="mt-2 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                                >
-                                    <option value="">Chọn user</option>
-
-                                    {users.map((user) => (
-                                        <option key={user.id} value={user.id}>
-                                            #{user.id} - {user.name || user.email}
+                                {users.map(
+                                    (user) => (
+                                        <option
+                                            key={
+                                                user.id
+                                            }
+                                            value={
+                                                user.id
+                                            }
+                                        >
+                                            {user.name ||
+                                                user.email}
                                         </option>
-                                    ))}
-                                </select>
-                            </div>
+                                    )
+                                )}
+                            </select>
 
-                            <div>
-                                <label className="text-sm font-semibold text-slate-700">
-                                    Event
-                                </label>
+                            <select
+                                value={
+                                    form.eventId
+                                }
+                                onChange={(
+                                    event
+                                ) =>
+                                    setForm(
+                                        (
+                                            current
+                                        ) => ({
+                                            ...current,
+                                            eventId:
+                                                event
+                                                    .target
+                                                    .value,
+                                            seatIds:
+                                                [],
+                                        })
+                                    )
+                                }
+                                className="h-12 rounded-xl border px-4"
+                            >
+                                <option value="">
+                                    Chọn event
+                                </option>
 
-                                <select
-                                    name="eventId"
-                                    value={form.eventId}
-                                    onChange={handleChange}
-                                    required
-                                    className="mt-2 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                                >
-                                    <option value="">Chọn event</option>
-
-                                    {events.map((event) => (
-                                        <option key={event.id} value={event.id}>
-                                            #{event.id} - {event.name}
+                                {events.map(
+                                    (event) => (
+                                        <option
+                                            key={
+                                                event.id
+                                            }
+                                            value={
+                                                event.id
+                                            }
+                                        >
+                                            {
+                                                event.name
+                                            }
                                         </option>
-                                    ))}
-                                </select>
-                            </div>
+                                    )
+                                )}
+                            </select>
                         </div>
 
                         <div className="mt-6">
-                            <div className="flex items-center justify-between mb-3">
-                                <div>
-                                    <label className="text-sm font-semibold text-slate-700">
-                                        Ghế còn trống
-                                    </label>
-
-                                    <p className="text-xs text-slate-500 mt-1">
-                                        Chỉ hiển thị ghế có trạng thái AVAILABLE.
-                                    </p>
-                                </div>
-
-                                {form.seatIds.length > 0 && (
-                                    <div className="text-sm font-bold text-blue-600">
-                                        Đã chọn {form.seatIds.length} ghế ·{" "}
-                                        {selectedTotal.toLocaleString()} đ
-                                    </div>
-                                )}
+                            <div className="mb-3 font-bold">
+                                Ghế AVAILABLE{" "}
+                                {loadingSeats
+                                    ? "(đang tải...)"
+                                    : ""}
                             </div>
 
-                            {!form.eventId ? (
-                                <div className="rounded-2xl bg-slate-50 border border-slate-200 px-5 py-8 text-center text-slate-500">
-                                    Hãy chọn event trước để tải danh sách ghế.
-                                </div>
-                            ) : loadingSeats ? (
-                                <div className="rounded-2xl bg-slate-50 border border-slate-200 px-5 py-8 text-center text-slate-500">
-                                    Đang tải ghế...
-                                </div>
-                            ) : availableSeats.length === 0 ? (
-                                <div className="rounded-2xl bg-slate-50 border border-slate-200 px-5 py-8 text-center text-slate-500">
-                                    Event này chưa có ghế AVAILABLE. Hãy qua trang Seats tạo ghế trước.
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 max-h-80 overflow-y-auto pr-2">
-                                    {availableSeats.map((seat) => {
-                                        const selected = form.seatIds.includes(Number(seat.id));
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                {availableSeats.map(
+                                    (seat) => {
+                                        const selected =
+                                            form.seatIds.includes(
+                                                Number(
+                                                    seat.id
+                                                )
+                                            );
 
                                         return (
                                             <button
+                                                key={
+                                                    seat.id
+                                                }
                                                 type="button"
-                                                key={seat.id}
-                                                onClick={() => toggleSeat(seat.id)}
-                                                className={`rounded-2xl border px-4 py-3 text-left transition ${selected
-                                                    ? "bg-blue-600 text-white border-blue-600"
-                                                    : "bg-white text-slate-700 border-slate-200 hover:border-blue-400 hover:bg-blue-50"
+                                                onClick={() =>
+                                                    toggleSeat(
+                                                        seat.id
+                                                    )
+                                                }
+                                                className={`rounded-xl border p-3 text-left ${selected
+                                                    ? "border-blue-600 bg-blue-50"
+                                                    : ""
                                                     }`}
                                             >
                                                 <div className="font-bold">
-                                                    {seat.seatNumber}
+                                                    {
+                                                        seat.seatNumber
+                                                    }
                                                 </div>
 
-                                                <div
-                                                    className={`text-xs mt-1 ${selected
-                                                        ? "text-blue-100"
-                                                        : "text-slate-500"
-                                                        }`}
-                                                >
-                                                    {seat.seatType || "STANDARD"}
+                                                <div className="text-xs">
+                                                    {
+                                                        seat.seatType
+                                                    }
                                                 </div>
 
-                                                <div
-                                                    className={`text-xs mt-1 font-semibold ${selected
-                                                        ? "text-white"
-                                                        : "text-blue-600"
-                                                        }`}
-                                                >
-                                                    {Number(seat.price || 0).toLocaleString()} đ
+                                                <div>
+                                                    {Number(
+                                                        seat.price ||
+                                                        0
+                                                    ).toLocaleString(
+                                                        "vi-VN"
+                                                    )}{" "}
+                                                    đ
                                                 </div>
                                             </button>
                                         );
-                                    })}
-                                </div>
-                            )}
+                                    }
+                                )}
+                            </div>
                         </div>
 
-                        <div className="mt-7 flex justify-end gap-3">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setShowCreate(false);
-                                    resetForm();
-                                }}
-                                className="px-5 py-3 rounded-xl border hover:bg-slate-100"
-                            >
-                                Hủy
-                            </button>
+                        <div className="mt-6 flex items-center justify-between">
+                            <div className="font-bold">
+                                Đã chọn{" "}
+                                {
+                                    form.seatIds
+                                        .length
+                                }
+                                /4 ghế · Tổng{" "}
+                                {selectedTotal.toLocaleString(
+                                    "vi-VN"
+                                )}{" "}
+                                đ
+                            </div>
 
                             <button
                                 type="submit"
-                                className="px-5 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                                className="rounded-xl bg-blue-600 px-6 py-3 font-bold text-white"
                             >
                                 Tạo booking
                             </button>

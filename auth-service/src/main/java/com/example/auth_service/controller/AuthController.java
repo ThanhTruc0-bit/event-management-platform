@@ -1,6 +1,11 @@
 package com.example.auth_service.controller;
 
-import com.example.auth_service.dto.*;
+import com.example.auth_service.dto.LoginRequest;
+import com.example.auth_service.dto.LogoutRequest;
+import com.example.auth_service.dto.RefreshTokenRequest;
+import com.example.auth_service.dto.RegisterRequest;
+import com.example.auth_service.dto.TokenResponse;
+import com.example.auth_service.dto.UserDTO;
 import com.example.auth_service.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -23,7 +28,9 @@ public class AuthController {
     }
 
     @PostMapping("/refresh-token")
-    public TokenResponse refreshToken(@RequestBody RefreshTokenRequest request) {
+    public TokenResponse refreshToken(
+            @RequestBody RefreshTokenRequest request
+    ) {
         return authService.refreshToken(request);
     }
 
@@ -35,7 +42,10 @@ public class AuthController {
 
     @GetMapping("/profile")
     public UserDTO profile(
-            @RequestHeader(value = "Authorization", required = false) String authorizationHeader
+            @RequestHeader(
+                    value = "Authorization",
+                    required = false
+            ) String authorizationHeader
     ) {
         return authService.profile(authorizationHeader);
     }

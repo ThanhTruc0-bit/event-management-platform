@@ -18,12 +18,17 @@ import reactor.core.publisher.Mono;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @Component
 public class JwtGatewayFilter implements GlobalFilter, Ordered {
 
     @Value("${jwt.secret}")
     private String secret;
+
+    private static final List<String> ALLOWED_ORIGINS = List.of(
+            "http://localhost:5173",
+            "http://localhost:5174");
 
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
@@ -36,11 +41,14 @@ public class JwtGatewayFilter implements GlobalFilter, Ordered {
         String path = request.getURI().getPath();
         HttpMethod method = request.getMethod();
 
+        addCorsHeaders(exchange);
+
         if (method == HttpMethod.OPTIONS) {
-            return chain.filter(exchange);
+            exchange.getResponse().setStatusCode(HttpStatus.OK);
+            return exchange.getResponse().setComplete();
         }
 
-        if (isPublicPath(path)) {
+        if (isPublicPath(path, method)) {
             return chain.filter(exchange);
         }
 
@@ -79,7 +87,7 @@ public class JwtGatewayFilter implements GlobalFilter, Ordered {
         }
 
         ServerHttpRequest mutatedRequest = request.mutate()
-                .header("X-User-Id", String.valueOf(userId))
+                .header("X-User-Id", userId == null ? "" : String.valueOf(userId))
                 .header("X-User-Email", email == null ? "" : email)
                 .header("X-User-Role", role)
                 .build();
@@ -87,47 +95,154 @@ public class JwtGatewayFilter implements GlobalFilter, Ordered {
         return chain.filter(exchange.mutate().request(mutatedRequest).build());
     }
 
-    private boolean isPublicPath(String path) {
-        return path.startsWith("/auth-service/auth/register")
-                || path.startsWith("/auth-service/auth/login")
-                || path.startsWith("/auth-service/auth/refresh-token")
-                || path.startsWith("/auth-service/auth/logout")
-                || path.contains("/swagger-ui")
-                || path.contains("/v3/api-docs")
-                || path.equals("/swagger-ui.html");
+    private void addCorsHeaders(ServerWebExchange exchange) {
+        String origin = exchange.getRequest().getHeaders().getOrigin();
+
+        if (origin != null && ALLOWED_ORIGINS.contains(origin)) {
+            HttpHeaders headers = exchange.getResponse().getHeaders();
+
+            headers.set("Access-Control-Allow-Origin", origin);
+            headers.set("Access-Control-Allow-Credentials", "true");
+            headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+
+            String requestHeaders = exchange.getRequest()
+                    .getHeaders()
+                    .getFirst("Access-Control-Request-Headers");
+
+            if (requestHeaders != null && !requestHeaders.isBlank()) {
+                headers.set("Access-Control-Allow-Headers", requestHeaders);
+            } else {
+                headers.set(
+                        "Access-Control-Allow-Headers",
+                        "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-User-Id, X-User-Email, X-User-Role");
+            }
+
+            headers.set("Access-Control-Max-Age", "3600");
+            headers.set("Vary", "Origin");
+        }
+    }
+
+    private String normalizePath(String path) {
+        if (path == null) {
+            return "";
+        }
+
+        String lowerPath = path.toLowerCase();
+
+        if (lowerPath.startsWith("/api/")) {
+            lowerPath = lowerPath.substring(4);
+        }
+
+        if (lowerPath.length() > 1 && lowerPath.endsWith("/")) {
+            lowerPath = lowerPath.substring(0, lowerPath.length() - 1);
+        }
+
+        return lowerPath;
+    }
+
+    private boolean isPublicPath(String path, HttpMethod method) {
+        if (path == null || method == null) {
+            return false;
+        }
+
+        String lowerPath = normalizePath(path);
+
+        if (lowerPath.startsWith("/auth-service/auth/register")
+                || lowerPath.startsWith("/auth-service/auth/login")
+                || lowerPath.startsWith("/auth-service/auth/refresh-token")
+                || lowerPath.startsWith("/auth-service/auth/logout")) {
+            return true;
+        }
+
+        if (lowerPath.contains("/swagger-ui")
+                || lowerPath.contains("/v3/api-docs")
+                || lowerPath.equals("/swagger-ui.html")) {
+            return true;
+        }
+
+        if (method == HttpMethod.GET) {
+            if (lowerPath.equals("/event-service/events")
+                    || lowerPath.startsWith("/event-service/events/")) {
+                return true;
+            }
+
+            if (lowerPath.equals("/event-service/event-categories")
+                    || lowerPath.startsWith("/event-service/event-categories/")) {
+                return true;
+            }
+
+            if (lowerPath.startsWith("/event-service/uploads/")) {
+                return true;
+            }
+
+            if (lowerPath.startsWith("/seat-service/seats/event/")) {
+                return true;
+            }
+
+            if (lowerPath.startsWith("/payment-service/payments/vnpay-return")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isUserPaymentApi(String path, HttpMethod method) {
+        if (path == null || method == null) {
+            return false;
+        }
+
+        String lowerPath = normalizePath(path);
+
+        return method == HttpMethod.POST
+                && lowerPath.matches("^/payment-service/payments/booking/\\d+/vnpay$");
     }
 
     private boolean isAdminOnlyApi(String path, HttpMethod method) {
-        if (method == null) {
+        if (path == null || method == null) {
             return false;
         }
+
+        String lowerPath = normalizePath(path);
 
         boolean isWriteMethod = method == HttpMethod.POST
                 || method == HttpMethod.PUT
                 || method == HttpMethod.PATCH
                 || method == HttpMethod.DELETE;
 
-        if (path.startsWith("/user-service/users")) {
+        /*
+         * USER được phép gọi API này để thanh toán booking của chính mình:
+         * POST /payment-service/payments/booking/{bookingId}/vnpay
+         */
+        if (isUserPaymentApi(path, method)) {
+            return false;
+        }
+
+        if (lowerPath.startsWith("/user-service/users")) {
             return true;
         }
 
-        if (path.startsWith("/event-service/events") && isWriteMethod) {
+        if (lowerPath.startsWith("/event-service/events") && isWriteMethod) {
             return true;
         }
 
-        if (path.startsWith("/seat-service/seats") && isWriteMethod) {
+        if (lowerPath.startsWith("/event-service/event-categories") && isWriteMethod) {
             return true;
         }
 
-        if (path.startsWith("/ticket-service/tickets") && isWriteMethod) {
+        if (lowerPath.startsWith("/seat-service/seats") && isWriteMethod) {
             return true;
         }
 
-        if (path.startsWith("/payment-service/payments") && isWriteMethod) {
+        if (lowerPath.startsWith("/ticket-service/tickets") && isWriteMethod) {
             return true;
         }
 
-        if (path.startsWith("/notification-service/notifications") && isWriteMethod) {
+        if (lowerPath.startsWith("/payment-service/payments") && isWriteMethod) {
+            return true;
+        }
+
+        if (lowerPath.startsWith("/notification-service/notifications") && isWriteMethod) {
             return true;
         }
 
@@ -136,6 +251,10 @@ public class JwtGatewayFilter implements GlobalFilter, Ordered {
 
     private Long getUserId(Claims claims) {
         Object userId = claims.get("userId");
+
+        if (userId == null) {
+            return null;
+        }
 
         if (userId instanceof Integer) {
             return ((Integer) userId).longValue();
@@ -149,6 +268,8 @@ public class JwtGatewayFilter implements GlobalFilter, Ordered {
     }
 
     private Mono<Void> writeError(ServerWebExchange exchange, HttpStatus status, String message) {
+        addCorsHeaders(exchange);
+
         exchange.getResponse().setStatusCode(status);
         exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
@@ -168,6 +289,6 @@ public class JwtGatewayFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        return -1;
+        return Ordered.HIGHEST_PRECEDENCE;
     }
 }

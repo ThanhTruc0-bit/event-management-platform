@@ -9,11 +9,17 @@ import org.springframework.web.bind.annotation.*;
 public interface UserClient {
 
     @GetMapping("/users/{id}")
-    UserDTO getUserById(@PathVariable Long id);
+    UserDTO getUserById(
+            @PathVariable("id") Long id
+    );
 
     @GetMapping("/users/email/{email}")
-    UserDTO getUserByEmail(@PathVariable String email);
+    UserDTO getUserByEmail(
+            @PathVariable("email") String email
+    );
 
     @PostMapping("/users")
-    UserDTO createUser(@RequestBody RegisterRequest request);
+    UserDTO createUser(
+            @RequestBody RegisterRequest request
+    );
 }
