@@ -431,7 +431,7 @@ function Checkout() {
     return (
         <div className="min-h-screen bg-[#111317] text-white pb-16">
             <section className="bg-[#08090b] border-b border-white/10">
-                <div className="max-w-[1500px] mx-auto px-4 lg:px-8 py-6">
+                <div className="max-w-375 mx-auto px-4 lg:px-8 py-6">
                     <Link
                         to={`/events/${eventId}`}
                         className="inline-flex items-center gap-2 text-sm font-bold text-slate-300 hover:text-emerald-300 mb-5"
@@ -442,7 +442,7 @@ function Checkout() {
 
                     <div className="rounded-[28px] bg-[#1f232b] border border-white/10 overflow-hidden">
                         <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr]">
-                            <div className="relative h-[230px] lg:h-full min-h-[230px] bg-gradient-to-br from-emerald-500 to-cyan-500">
+                            <div className="relative h-57.5 lg:h-full min-h-57.5 bg-linear-to-br from-emerald-500 to-cyan-500">
                                 {image ? (
                                     <img
                                         src={image}
@@ -455,7 +455,7 @@ function Checkout() {
                                     </div>
                                 )}
 
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+                                <div className="absolute inset-0 bg-linear-to-t from-black/70 to-transparent"></div>
                             </div>
 
                             <div className="p-6 md:p-8">
@@ -469,7 +469,7 @@ function Checkout() {
                                 </h1>
 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                                    <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-4">
+                                    <div className="rounded-2xl bg-white/6 border border-white/10 p-4">
                                         <CalendarDays
                                             size={21}
                                             className="text-emerald-400"
@@ -482,7 +482,7 @@ function Checkout() {
                                         </div>
                                     </div>
 
-                                    <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-4">
+                                    <div className="rounded-2xl bg-white/6 border border-white/10 p-4">
                                         <MapPin
                                             size={21}
                                             className="text-emerald-400"
@@ -495,7 +495,7 @@ function Checkout() {
                                         </div>
                                     </div>
 
-                                    <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-4">
+                                    <div className="rounded-2xl bg-white/6 border border-white/10 p-4">
                                         <Users
                                             size={21}
                                             className="text-emerald-400"
@@ -512,7 +512,7 @@ function Checkout() {
                         </div>
                     </div>
 
-                    <div className="mt-6 rounded-[24px] bg-[#1b1f27] border border-white/10 p-5">
+                    <div className="mt-6 rounded-3xl bg-[#1b1f27] border border-white/10 p-5">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div className="rounded-2xl bg-emerald-500 text-white p-4">
                                 <div className="flex items-center gap-2 font-black">
@@ -524,7 +524,7 @@ function Checkout() {
                                 </div>
                             </div>
 
-                            <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-4">
+                            <div className="rounded-2xl bg-white/6 border border-white/10 p-4">
                                 <div className="flex items-center gap-2 font-black text-slate-300">
                                     <CreditCard size={20} />
                                     2. Thanh toán
@@ -534,7 +534,7 @@ function Checkout() {
                                 </div>
                             </div>
 
-                            <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-4">
+                            <div className="rounded-2xl bg-white/6 border border-white/10 p-4">
                                 <div className="flex items-center gap-2 font-black text-slate-300">
                                     <ShieldCheck size={20} />
                                     3. Hoàn tất
@@ -548,7 +548,7 @@ function Checkout() {
                 </div>
             </section>
 
-            <section className="max-w-[1500px] mx-auto px-4 lg:px-8 pt-8">
+            <section className="max-w-375 mx-auto px-4 lg:px-8 pt-8">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     <div className="lg:col-span-8 space-y-6">
                         <div className="rounded-[28px] bg-[#30343e] border border-white/10 overflow-hidden">
@@ -606,7 +606,7 @@ function Checkout() {
                                         </div>
                                     </div>
 
-                                    <div className="rounded-2xl bg-white/[0.08] border border-white/10 p-3">
+                                    <div className="rounded-2xl bg-white/8 border border-white/10 p-3">
                                         <div className="flex items-center gap-2 font-black text-white">
                                             <span className="h-4 w-4 rounded bg-white"></span>
                                             Đã chọn
@@ -652,7 +652,7 @@ function Checkout() {
                                         <button
                                             type="button"
                                             onClick={clearSelectedSeats}
-                                            className="px-4 py-2 rounded-full bg-white/[0.08] text-white text-sm font-black hover:bg-white/[0.12]"
+                                            className="px-4 py-2 rounded-full bg-white/8 text-white text-sm font-black hover:bg-white/12"
                                         >
                                             Bỏ chọn
                                         </button>
@@ -668,7 +668,7 @@ function Checkout() {
                                         {seatGroups.map((group) => (
                                             <div
                                                 key={group.name}
-                                                className="rounded-[24px] bg-[#242832] border border-white/10 p-5"
+                                                className="rounded-3xl bg-[#242832] border border-white/10 p-5"
                                             >
                                                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-5">
                                                     <div>
@@ -784,7 +784,7 @@ function Checkout() {
                     </div>
 
                     <aside className="lg:col-span-4">
-                        <div className="rounded-[28px] bg-[#30343e] border border-white/10 sticky top-[96px] overflow-hidden">
+                        <div className="rounded-[28px] bg-[#30343e] border border-white/10 sticky top-24 overflow-hidden">
                             <div className="bg-[#22252d] px-5 py-4">
                                 <h2 className="text-xl font-black text-emerald-400">
                                     Tóm tắt đơn hàng
@@ -847,11 +847,11 @@ function Checkout() {
                                                 Chưa chọn vé nào.
                                             </div>
                                         ) : (
-                                            <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
+                                            <div className="space-y-3 max-h-65 overflow-y-auto pr-1">
                                                 {selectedSeats.map((seat) => (
                                                     <div
                                                         key={seat.id}
-                                                        className="rounded-2xl bg-white/[0.06] border border-white/10 p-3"
+                                                        className="rounded-2xl bg-white/6 border border-white/10 p-3"
                                                     >
                                                         <div className="flex items-center justify-between gap-3">
                                                             <div>

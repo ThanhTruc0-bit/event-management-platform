@@ -1117,7 +1117,7 @@ function Tickets() {
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[1450px]">
+                        <table className="w-full min-w-362.5">
                             <thead className="bg-slate-950 text-white">
                                 <tr>
                                     <TableHeader>
@@ -1247,7 +1247,7 @@ function Tickets() {
                                                 </td>
 
                                                 <td className="p-4">
-                                                    <div className="font-black text-emerald-600 max-w-[220px] break-all">
+                                                    <div className="font-black text-emerald-600 max-w-55 break-all">
                                                         {ticket.ticketCode ||
                                                             `TICKET-${ticketId}`}
                                                     </div>
@@ -1262,7 +1262,7 @@ function Tickets() {
                                                 </td>
 
                                                 <td className="p-4">
-                                                    <div className="font-bold text-slate-900 max-w-[220px]">
+                                                    <div className="font-bold text-slate-900 max-w-55">
                                                         {getEventName(
                                                             ticket.eventId
                                                         )}

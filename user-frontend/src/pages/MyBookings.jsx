@@ -652,7 +652,7 @@ function MyBookings() {
     return (
         <div className="min-h-screen bg-[#111317] text-white">
             <section className="border-b border-white/10 bg-[#08090b]">
-                <div className="mx-auto max-w-[1500px] px-4 py-10 lg:px-8">
+                <div className="mx-auto max-w-375 px-4 py-10 lg:px-8">
                     <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
                         <div>
                             <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1.5 text-sm font-black text-emerald-300">
@@ -691,7 +691,7 @@ function MyBookings() {
                 </div>
             </section>
 
-            <main className="mx-auto max-w-[1500px] px-4 py-8 lg:px-8">
+            <main className="mx-auto max-w-375 px-4 py-8 lg:px-8">
                 {error && (
                     <div className="mb-6 flex gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-200">
                         <AlertCircle

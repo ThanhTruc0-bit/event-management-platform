@@ -595,7 +595,7 @@ function EventDetail() {
     return (
         <div className="min-h-screen bg-[#111317] pb-16 text-white">
             <section className="relative overflow-hidden bg-[#08090b]">
-                <div className="mx-auto max-w-[1500px] px-4 pb-8 pt-6 lg:px-8">
+                <div className="mx-auto max-w-375 px-4 pb-8 pt-6 lg:px-8">
                     <Link
                         to="/events"
                         className="mb-5 inline-flex items-center gap-2 text-sm font-bold text-slate-300 hover:text-emerald-300"
@@ -606,8 +606,8 @@ function EventDetail() {
                         Quay lại danh sách
                     </Link>
 
-                    <div className="overflow-hidden rounded-[32px] border border-white/10 bg-[#34363d] shadow-2xl">
-                        <div className="grid min-h-[520px] grid-cols-1 lg:grid-cols-[410px_1fr]">
+                    <div className="overflow-hidden rounded-4xl border border-white/10 bg-[#34363d] shadow-2xl">
+                        <div className="grid min-h-130 grid-cols-1 lg:grid-cols-[410px_1fr]">
                             <div className="flex flex-col justify-between p-7 md:p-10">
                                 <div>
                                     <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1.5 text-xs font-black text-emerald-300">
@@ -714,7 +714,7 @@ function EventDetail() {
                                 </div>
                             </div>
 
-                            <div className="relative min-h-[360px] bg-gradient-to-br from-emerald-500 to-cyan-500">
+                            <div className="relative min-h-90 bg-linear-to-br from-emerald-500 to-cyan-500">
                                 {image ? (
                                     <img
                                         src={
@@ -746,21 +746,21 @@ function EventDetail() {
                 </div>
             </section>
 
-            <section className="mx-auto mt-8 max-w-[1500px] px-4 lg:px-8">
+            <section className="mx-auto mt-8 max-w-375 px-4 lg:px-8">
                 <ContentCard
                     title="Giới thiệu"
                 >
                     <div
                         className={`relative whitespace-pre-line text-lg leading-8 ${showFullIntro
                             ? ""
-                            : "max-h-[360px] overflow-hidden"
+                            : "max-h-90 overflow-hidden"
                             }`}
                     >
                         {event.description ||
                             "Thông tin sự kiện đang được cập nhật."}
 
                         {!showFullIntro && (
-                            <div className="absolute bottom-0 left-0 right-0 flex h-28 items-end justify-center bg-gradient-to-t from-[#30343e] to-transparent">
+                            <div className="absolute bottom-0 left-0 right-0 flex h-28 items-end justify-center bg-linear-to-t from-[#30343e] to-transparent">
                                 <button
                                     type="button"
                                     onClick={() =>
@@ -782,7 +782,7 @@ function EventDetail() {
                 </ContentCard>
             </section>
 
-            <section className="mx-auto mt-8 max-w-[1500px] px-4 lg:px-8">
+            <section className="mx-auto mt-8 max-w-375 px-4 lg:px-8">
                 <ContentCard
                     title="Lịch diễn"
                     action={
@@ -819,7 +819,7 @@ function EventDetail() {
                 </ContentCard>
             </section>
 
-            <section className="mx-auto mt-8 max-w-[1500px] px-4 lg:px-8">
+            <section className="mx-auto mt-8 max-w-375 px-4 lg:px-8">
                 <ContentCard
                     title="Thông tin vé"
                     action={
@@ -1070,7 +1070,7 @@ function ContentCard({
     children,
 }) {
     return (
-        <div className="overflow-hidden rounded-[24px] border border-white/10 bg-[#30343e]">
+        <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#30343e]">
             <div className="flex flex-col gap-3 bg-[#22252d] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 className="text-2xl font-black text-emerald-400">
                     {title}

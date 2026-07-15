@@ -788,7 +788,7 @@ function EntityManager({
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
                     <form
                         onSubmit={saveItem}
-                        className="bg-white w-[760px] max-w-full max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-6"
+                        className="bg-white w-190 max-w-full max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-6"
                     >
                         <div className="flex items-center justify-between mb-6">
                             <div>

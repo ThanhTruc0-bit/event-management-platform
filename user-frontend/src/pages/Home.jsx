@@ -1068,17 +1068,17 @@ function Home() {
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                         <div className="lg:col-span-8">
                             {loading ? (
-                                <div className="h-[430px] rounded-[32px] bg-white/10 border border-white/10 flex items-center justify-center">
+                                <div className="h-107.5 rounded-4xl bg-white/10 border border-white/10 flex items-center justify-center">
                                     Đang tải sự kiện
                                     nổi bật...
                                 </div>
                             ) : !currentBanner ? (
-                                <div className="h-[430px] rounded-[32px] bg-white/10 border border-white/10 flex items-center justify-center">
+                                <div className="h-107.5 rounded-4xl bg-white/10 border border-white/10 flex items-center justify-center">
                                     Chưa có sự kiện
                                     để hiển thị.
                                 </div>
                             ) : (
-                                <div className="group relative h-[430px] rounded-[32px] overflow-hidden bg-linear-to-br from-emerald-500 to-cyan-500">
+                                <div className="group relative h-107.5 rounded-4xl overflow-hidden bg-linear-to-br from-emerald-500 to-cyan-500">
                                     {bannerImage ? (
                                         <img
                                             src={

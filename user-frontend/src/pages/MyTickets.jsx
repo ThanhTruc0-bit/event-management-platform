@@ -573,7 +573,7 @@ function MyTickets() {
     return (
         <div className="min-h-screen bg-[#111317] text-white">
             <section className="bg-[#08090b] border-b border-white/10">
-                <div className="max-w-[1500px] mx-auto px-4 lg:px-8 py-10">
+                <div className="max-w-375 mx-auto px-4 lg:px-8 py-10">
                     <Link
                         to="/my-bookings"
                         className="inline-flex items-center gap-2 text-slate-300"
@@ -610,7 +610,7 @@ function MyTickets() {
                 </div>
             </section>
 
-            <section className="max-w-[1500px] mx-auto px-4 lg:px-8 py-8">
+            <section className="max-w-375 mx-auto px-4 lg:px-8 py-8">
                 <form
                     onSubmit={submitSearch}
                     className="rounded-[28px] bg-[#1b1f27] border border-white/10 p-5"
@@ -771,7 +771,7 @@ function MyTickets() {
                                                     <img
                                                         src={getQrImage(ticket)}
                                                         alt="QR"
-                                                        className="w-[220px] h-[220px]"
+                                                        className="w-55 h-55"
                                                     />
                                                 ) : (
                                                     <QrCode

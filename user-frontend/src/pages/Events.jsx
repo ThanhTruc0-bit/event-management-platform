@@ -723,7 +723,7 @@ function Events() {
                                 Tìm kiếm
                             </label>
 
-                            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3">
+                            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/8 px-4 py-3">
                                 <Search
                                     size={19}
                                     className="text-slate-400"
@@ -771,7 +771,7 @@ function Events() {
                                 className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black ${timeFilter ===
                                     "UPCOMING_SOON"
                                     ? "border-emerald-500 bg-emerald-500"
-                                    : "border-white/10 bg-white/[0.08]"
+                                    : "border-white/10 bg-white/8"
                                     }`}
                             >
                                 <Clock
@@ -799,7 +799,7 @@ function Events() {
                                 onClick={
                                     resetFilter
                                 }
-                                className="rounded-full bg-white/[0.08] px-4 py-2.5 text-sm font-black"
+                                className="rounded-full bg-white/8 px-4 py-2.5 text-sm font-black"
                             >
                                 Xóa bộ lọc
                             </button>
@@ -812,7 +812,7 @@ function Events() {
                                 disabled={
                                     loading
                                 }
-                                className="inline-flex items-center gap-2 rounded-full bg-white/[0.08] px-4 py-2.5 text-sm font-black disabled:opacity-60"
+                                className="inline-flex items-center gap-2 rounded-full bg-white/8 px-4 py-2.5 text-sm font-black disabled:opacity-60"
                             >
                                 <RefreshCw
                                     size={16}
@@ -845,12 +845,12 @@ function Events() {
                 )}
 
                 {loading ? (
-                    <div className="rounded-[28px] border border-white/10 bg-white/[0.08] p-10 text-center text-slate-300">
+                    <div className="rounded-[28px] border border-white/10 bg-white/8 p-10 text-center text-slate-300">
                         Đang tải sự kiện...
                     </div>
                 ) : events.length ===
                     0 ? (
-                    <div className="rounded-[28px] border border-white/10 bg-white/[0.08] p-10 text-center text-slate-300">
+                    <div className="rounded-[28px] border border-white/10 bg-white/8 p-10 text-center text-slate-300">
                         Không có sự kiện phù hợp.
                     </div>
                 ) : (
@@ -878,7 +878,7 @@ function Events() {
                                             to={`/events/${event.id}`}
                                             className="block"
                                         >
-                                            <div className="relative aspect-[16/9] overflow-hidden bg-slate-800">
+                                            <div className="relative aspect-video overflow-hidden bg-slate-800">
                                                 {image ? (
                                                     <img
                                                         src={
@@ -1094,7 +1094,7 @@ function FilterSelect({
                 {label}
             </label>
 
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/8 px-4 py-3">
                 <span className="text-slate-400">
                     {icon}
                 </span>
