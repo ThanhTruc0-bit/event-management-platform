@@ -17,6 +17,22 @@ function normalizeRole(role) {
         .toUpperCase();
 }
 
+function clearAuthStorage() {
+    const authKeys = [
+        "token",
+        "accessToken",
+        "refreshToken",
+        "jwt",
+        "user",
+        "currentUser",
+        "authUser",
+    ];
+
+    authKeys.forEach((key) => {
+        localStorage.removeItem(key);
+    });
+}
+
 function getErrorMessage(error) {
     const data = error?.response?.data;
 
@@ -40,15 +56,11 @@ function Login() {
         password: "",
     });
 
-    const [loading, setLoading] =
-        useState(false);
-
-    const [error, setError] =
-        useState("");
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
 
     const handleChange = (event) => {
-        const { name, value } =
-            event.target;
+        const { name, value } = event.target;
 
         setForm((previousForm) => ({
             ...previousForm,
@@ -66,36 +78,31 @@ function Login() {
             .toLowerCase();
 
         if (!email) {
-            setError(
-                "Vui lòng nhập email."
-            );
+            setError("Vui lòng nhập email.");
             return;
         }
 
         if (!form.password) {
-            setError(
-                "Vui lòng nhập mật khẩu."
-            );
+            setError("Vui lòng nhập mật khẩu.");
             return;
         }
 
         try {
             setLoading(true);
 
-            const response =
-                await axiosClient.post(
-                    "/auth-service/auth/login",
-                    {
-                        email,
-                        password:
-                            form.password,
-                    }
-                );
+            const response = await axiosClient.post(
+                "/auth-service/auth/login",
+                {
+                    email,
+                    password: form.password,
+                }
+            );
 
             const {
                 accessToken,
                 refreshToken,
                 userId,
+                email: responseEmail,
                 role,
             } = response.data || {};
 
@@ -114,10 +121,8 @@ function Login() {
             const normalizedRole =
                 normalizeRole(role);
 
-            if (
-                normalizedRole !== "ADMIN"
-            ) {
-                localStorage.clear();
+            if (normalizedRole !== "ADMIN") {
+                clearAuthStorage();
 
                 setError(
                     "Tài khoản này không có quyền ADMIN."
@@ -126,13 +131,7 @@ function Login() {
                 return;
             }
 
-            localStorage.removeItem(
-                "token"
-            );
-
-            localStorage.removeItem(
-                "currentUser"
-            );
+            clearAuthStorage();
 
             localStorage.setItem(
                 "accessToken",
@@ -148,7 +147,8 @@ function Login() {
                 "user",
                 JSON.stringify({
                     userId,
-                    email,
+                    id: userId,
+                    email: responseEmail || email,
                     role: normalizedRole,
                 })
             );
@@ -160,9 +160,7 @@ function Login() {
             console.error(loginError);
 
             setError(
-                getErrorMessage(
-                    loginError
-                )
+                getErrorMessage(loginError)
             );
         } finally {
             setLoading(false);
@@ -228,16 +226,12 @@ function Login() {
                                     className="shrink-0"
                                 />
 
-                                <span>
-                                    {error}
-                                </span>
+                                <span>{error}</span>
                             </div>
                         )}
 
                         <form
-                            onSubmit={
-                                handleLogin
-                            }
+                            onSubmit={handleLogin}
                             className="space-y-5"
                         >
                             <div>
@@ -254,12 +248,8 @@ function Login() {
                                     <input
                                         type="email"
                                         name="email"
-                                        value={
-                                            form.email
-                                        }
-                                        onChange={
-                                            handleChange
-                                        }
+                                        value={form.email}
+                                        onChange={handleChange}
                                         placeholder="admin@gmail.com"
                                         autoComplete="email"
                                         className="w-full h-12 pl-11 pr-4 rounded-xl border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500"
@@ -282,12 +272,8 @@ function Login() {
                                     <input
                                         type="password"
                                         name="password"
-                                        value={
-                                            form.password
-                                        }
-                                        onChange={
-                                            handleChange
-                                        }
+                                        value={form.password}
+                                        onChange={handleChange}
                                         placeholder="Nhập mật khẩu"
                                         autoComplete="current-password"
                                         className="w-full h-12 pl-11 pr-4 rounded-xl border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500"
@@ -298,10 +284,8 @@ function Login() {
 
                             <button
                                 type="submit"
-                                disabled={
-                                    loading
-                                }
-                                className="w-full h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-70"
+                                disabled={loading}
+                                className="w-full h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                             >
                                 {loading && (
                                     <Loader2
@@ -317,7 +301,8 @@ function Login() {
                         </form>
 
                         <div className="mt-5 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
-                            Tài khoản ADMIN không được đăng ký công khai. ADMIN phải được tạo sẵn trong hệ thống.
+                            Tài khoản ADMIN không được đăng ký công khai.
+                            ADMIN phải được tạo sẵn trong hệ thống.
                         </div>
                     </div>
                 </section>

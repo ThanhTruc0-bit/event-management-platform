@@ -12,8 +12,12 @@ import com.example.event_service.specification.EventCategorySpecification;
 import com.example.event_service.specification.EventSpecification;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,9 +25,18 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -58,6 +71,8 @@ public class EventService {
                         "ENDED",
                         "NO_TICKETS");
 
+        private static final long MAX_BANNER_SIZE_BYTES = 5L * 1024L * 1024L;
+
         private final EventRepository eventRepository;
 
         private final EventCategoryRepository categoryRepository;
@@ -85,16 +100,17 @@ public class EventService {
                         int size,
                         String sortBy,
                         String sortDirection) {
-                validatePage(
-                                page,
-                                size);
+                validatePage(page, size);
 
                 validatePriceRange(
                                 minPrice,
                                 maxPrice);
 
-                String normalizedStatus = normalizeOptionalStatus(
-                                status);
+                validateDateRange(
+                                fromDate,
+                                toDate);
+
+                String normalizedStatus = normalizeOptionalStatus(status);
 
                 String normalizedTicketStatus = normalizeOptionalTicketStatus(
                                 ticketStatus);
@@ -106,51 +122,79 @@ public class EventService {
                                 sortBy,
                                 sortDirection);
 
+                Specification<Event> specification = EventSpecification.filter(
+                                keyword,
+                                keywordCategoryIds,
+                                categoryId,
+                                normalizedStatus,
+                                featured,
+                                location,
+                                fromDate,
+                                toDate,
+                                publicOnly);
+
+                boolean requiresSeatFiltering = normalizedTicketStatus != null
+                                || minPrice != null
+                                || maxPrice != null;
+
+                /*
+                 * Không lọc theo giá/trạng thái vé:
+                 * phân trang ngay tại MySQL.
+                 */
+                if (!requiresSeatFiltering) {
+                        Pageable pageable = PageRequest.of(
+                                        page,
+                                        size,
+                                        sort);
+
+                        Page<Event> eventPage = eventRepository.findAll(
+                                        specification,
+                                        pageable);
+
+                        Map<Long, EventCategory> categories = loadCategories(
+                                        eventPage.getContent());
+
+                        List<EventResponse> content = eventPage
+                                        .getContent()
+                                        .stream()
+                                        .map(event -> toResponse(
+                                                        event,
+                                                        categories.get(
+                                                                        event.getCategoryId()),
+                                                        getSeatsSafely(
+                                                                        event.getId())))
+                                        .toList();
+
+                        return new PageImpl<>(
+                                        content,
+                                        pageable,
+                                        eventPage.getTotalElements());
+                }
+
+                /*
+                 * Giá và trạng thái vé nằm trong Seat Service.
+                 * Phải tổng hợp ghế, lọc rồi mới phân trang.
+                 */
                 List<Event> events = eventRepository.findAll(
-                                EventSpecification.filter(
-                                                keyword,
-                                                keywordCategoryIds,
-                                                categoryId,
-                                                normalizedStatus,
-                                                featured,
-                                                location,
-                                                fromDate,
-                                                toDate,
-                                                publicOnly),
+                                specification,
                                 sort);
 
-                Set<Long> categoryIds = events.stream()
-                                .map(
-                                                Event::getCategoryId)
-                                .filter(
-                                                Objects::nonNull)
-                                .collect(
-                                                Collectors.toSet());
-
-                Map<Long, EventCategory> categoriesById = categoryRepository
-                                .findAllById(
-                                                categoryIds)
-                                .stream()
-                                .collect(
-                                                Collectors.toMap(
-                                                                EventCategory::getId,
-                                                                category -> category));
+                Map<Long, EventCategory> categories = loadCategories(events);
 
                 List<EventResponse> filtered = events.stream()
-                                .map(
-                                                event -> toResponse(
-                                                                event,
-                                                                categoriesById.get(
-                                                                                event.getCategoryId())))
-                                .filter(
-                                                response -> matchesPriceFilter(
-                                                                response,
-                                                                minPrice,
-                                                                maxPrice))
-                                .filter(
-                                                response -> matchesTicketStatus(
-                                                                response,
-                                                                normalizedTicketStatus))
+                                .map(event -> toResponse(
+                                                event,
+                                                categories.get(
+                                                                event.getCategoryId()),
+                                                getSeatsRequired(
+                                                                event.getId())))
+                                .filter(response -> matchesPriceFilter(
+                                                response,
+                                                minPrice,
+                                                maxPrice))
+                                .filter(response -> matchesTicketStatus(
+                                                response,
+                                                normalizedTicketStatus))
                                 .toList();
 
                 int totalElements = filtered.size();
@@ -163,17 +207,15 @@ public class EventService {
                                 fromIndex + size,
                                 totalElements);
 
-                List<EventResponse> content = filtered.subList(
-                                fromIndex,
-                                toIndex);
-
                 Pageable pageable = PageRequest.of(
                                 page,
                                 size,
                                 sort);
 
                 return new PageImpl<>(
-                                content,
+                                filtered.subList(
+                                                fromIndex,
+                                                toIndex),
                                 pageable,
                                 totalElements);
         }
@@ -183,17 +225,15 @@ public class EventService {
                         String role) {
                 Event event = findEventEntity(id);
 
-                String resolvedStatus = resolveDisplayStatus(
+                String displayStatus = resolveAutomaticStatus(
                                 event);
 
                 if ("DRAFT".equals(
-                                resolvedStatus)
-                                && !adminGuard.isAdmin(
-                                                role)) {
+                                displayStatus)
+                                && !adminGuard.isAdmin(role)) {
                         throw new ResponseStatusException(
                                         HttpStatus.NOT_FOUND,
-                                        "Event not found: "
-                                                        + id);
+                                        "Event not found: " + id);
                 }
 
                 EventCategory category = categoryRepository
@@ -203,61 +243,26 @@ public class EventService {
 
                 return toResponse(
                                 event,
-                                category);
+                                category,
+                                getSeatsSafely(id));
         }
 
-        @CacheEvict(value = {
-                        "eventCategory"
-        }, allEntries = true)
+        @Transactional
         public EventResponse createEvent(
                         Event request) {
                 validateEvent(request);
 
                 Event event = new Event();
 
-                event.setName(
-                                request
-                                                .getName()
-                                                .trim());
-
-                event.setDescription(
-                                normalizeNullableText(
-                                                request.getDescription()));
-
-                event.setLocation(
-                                normalizeNullableText(
-                                                request.getLocation()));
-
-                event.setCategoryId(
-                                request.getCategoryId());
-
-                event.setEventDate(
-                                request.getEventDate());
-
-                event.setSaleStartAt(
-                                request.getSaleStartAt());
-
-                event.setSaleEndAt(
-                                request.getSaleEndAt());
-
-                event.setBanner(
-                                normalizeNullableText(
-                                                request.getBanner()));
-
-                event.setFeatured(
-                                Boolean.TRUE.equals(
-                                                request.getFeatured()));
+                applyEventData(
+                                event,
+                                request,
+                                false);
 
                 event.setStatus(
-                                normalizeRequiredStatus(
-                                                request.getStatus()));
+                                resolveAutomaticStatus(event));
 
-                event.setStatus(
-                                resolveAutomaticStatus(
-                                                event));
-
-                Event saved = eventRepository.save(
-                                event);
+                Event saved = eventRepository.save(event);
 
                 EventCategory category = categoryRepository
                                 .findById(
@@ -266,12 +271,12 @@ public class EventService {
 
                 return toResponse(
                                 saved,
-                                category);
+                                category,
+                                getSeatsSafely(
+                                                saved.getId()));
         }
 
-        @CacheEvict(value = {
-                        "eventCategory"
-        }, allEntries = true)
+        @Transactional
         public EventResponse updateEvent(
                         Long id,
                         Event request) {
@@ -279,48 +284,10 @@ public class EventService {
 
                 validateEvent(request);
 
-                existing.setName(
-                                request
-                                                .getName()
-                                                .trim());
-
-                existing.setDescription(
-                                normalizeNullableText(
-                                                request.getDescription()));
-
-                existing.setLocation(
-                                normalizeNullableText(
-                                                request.getLocation()));
-
-                existing.setCategoryId(
-                                request.getCategoryId());
-
-                existing.setEventDate(
-                                request.getEventDate());
-
-                existing.setSaleStartAt(
-                                request.getSaleStartAt());
-
-                existing.setSaleEndAt(
-                                request.getSaleEndAt());
-
-                existing.setFeatured(
-                                Boolean.TRUE.equals(
-                                                request.getFeatured()));
-
-                existing.setStatus(
-                                normalizeRequiredStatus(
-                                                request.getStatus()));
-
-                if (request.getBanner() != null
-                                && !request
-                                                .getBanner()
-                                                .isBlank()) {
-                        existing.setBanner(
-                                        request
-                                                        .getBanner()
-                                                        .trim());
-                }
+                applyEventData(
+                                existing,
+                                request,
+                                true);
 
                 existing.setStatus(
                                 resolveAutomaticStatus(
@@ -336,9 +303,12 @@ public class EventService {
 
                 return toResponse(
                                 saved,
-                                category);
+                                category,
+                                getSeatsSafely(
+                                                saved.getId()));
         }
 
+        @Transactional
         public EventResponse uploadBanner(
                         Long id,
                         MultipartFile file) {
@@ -360,25 +330,26 @@ public class EventService {
                                 originalName,
                                 file.getContentType());
 
-                try {
-                        Path uploadDirectory = Paths
-                                        .get(
-                                                        uploadRoot,
-                                                        "events")
-                                        .toAbsolutePath()
-                                        .normalize();
+                Path uploadDirectory = Paths.get(
+                                uploadRoot,
+                                "events")
+                                .toAbsolutePath()
+                                .normalize();
 
+                Path newFilePath = null;
+
+                try {
                         Files.createDirectories(
                                         uploadDirectory);
 
                         String fileName = UUID.randomUUID()
                                         + extension;
 
-                        Path filePath = uploadDirectory
+                        newFilePath = uploadDirectory
                                         .resolve(fileName)
                                         .normalize();
 
-                        if (!filePath.startsWith(
+                        if (!newFilePath.startsWith(
                                         uploadDirectory)) {
                                 throw new ResponseStatusException(
                                                 HttpStatus.BAD_REQUEST,
@@ -387,7 +358,7 @@ public class EventService {
 
                         Files.copy(
                                         file.getInputStream(),
-                                        filePath,
+                                        newFilePath,
                                         StandardCopyOption.REPLACE_EXISTING);
 
                         String oldBanner = event.getBanner();
@@ -396,7 +367,7 @@ public class EventService {
                                         "/uploads/events/"
                                                         + fileName);
 
-                        Event saved = eventRepository.save(
+                        Event saved = eventRepository.saveAndFlush(
                                         event);
 
                         deleteOldBannerFile(
@@ -409,17 +380,25 @@ public class EventService {
 
                         return toResponse(
                                         saved,
-                                        category);
+                                        category,
+                                        getSeatsSafely(
+                                                        saved.getId()));
                 } catch (ResponseStatusException exception) {
+                        deleteFileQuietly(
+                                        newFilePath);
+
                         throw exception;
                 } catch (Exception exception) {
+                        deleteFileQuietly(
+                                        newFilePath);
+
                         throw new ResponseStatusException(
                                         HttpStatus.INTERNAL_SERVER_ERROR,
-                                        "Upload banner failed: "
-                                                        + exception.getMessage());
+                                        "Upload banner failed");
                 }
         }
 
+        @Transactional
         public void deleteEvent(
                         Long id) {
                 Event event = findEventEntity(id);
@@ -430,11 +409,15 @@ public class EventService {
                 if (!"DRAFT".equals(status)) {
                         throw new ResponseStatusException(
                                         HttpStatus.CONFLICT,
-                                        "Chỉ được xóa sự kiện DRAFT. Sự kiện đã công khai phải chuyển sang CANCELLED.");
+                                        "Chỉ được xóa sự kiện DRAFT. "
+                                                        + "Sự kiện đã công khai phải chuyển sang CANCELLED.");
                 }
 
-                List<SeatDTO> seats = getSeatsSafely(
-                                id);
+                /*
+                 * Seat Service lỗi thì trả 503.
+                 * Không được hiểu nhầm thành event không có ghế.
+                 */
+                List<SeatDTO> seats = getSeatsRequired(id);
 
                 if (!seats.isEmpty()) {
                         throw new ResponseStatusException(
@@ -444,8 +427,7 @@ public class EventService {
 
                 String oldBanner = event.getBanner();
 
-                eventRepository.delete(
-                                event);
+                eventRepository.delete(event);
 
                 deleteOldBannerFile(
                                 oldBanner);
@@ -455,7 +437,7 @@ public class EventService {
         public int refreshAutomaticStatuses() {
                 List<Event> events = eventRepository.findAll();
 
-                int updatedCount = 0;
+                List<Event> changedEvents = new ArrayList<>();
 
                 for (Event event : events) {
                         String current = normalizeRequiredStatus(
@@ -464,30 +446,74 @@ public class EventService {
                         String resolved = resolveAutomaticStatus(
                                         event);
 
-                        if (!current.equals(
-                                        resolved)) {
-                                event.setStatus(
-                                                resolved);
+                        if (!current.equals(resolved)) {
+                                event.setStatus(resolved);
 
-                                updatedCount++;
+                                changedEvents.add(event);
                         }
                 }
 
-                if (updatedCount > 0) {
+                if (!changedEvents.isEmpty()) {
                         eventRepository.saveAll(
-                                        events);
+                                        changedEvents);
                 }
 
-                return updatedCount;
+                return changedEvents.size();
+        }
+
+        private void applyEventData(
+                        Event target,
+                        Event request,
+                        boolean preserveBlankBanner) {
+                target.setName(
+                                request.getName().trim());
+
+                target.setDescription(
+                                normalizeNullableText(
+                                                request.getDescription()));
+
+                target.setLocation(
+                                normalizeNullableText(
+                                                request.getLocation()));
+
+                target.setCategoryId(
+                                request.getCategoryId());
+
+                target.setEventDate(
+                                request.getEventDate());
+
+                target.setSaleStartAt(
+                                request.getSaleStartAt());
+
+                target.setSaleEndAt(
+                                request.getSaleEndAt());
+
+                target.setFeatured(
+                                Boolean.TRUE.equals(
+                                                request.getFeatured()));
+
+                target.setStatus(
+                                normalizeRequiredStatus(
+                                                request.getStatus()));
+
+                String banner = normalizeNullableText(
+                                request.getBanner());
+
+                if (!preserveBlankBanner
+                                || banner != null) {
+                        target.setBanner(banner);
+                }
         }
 
         private EventResponse toResponse(
                         Event event,
-                        EventCategory category) {
-                List<SeatDTO> seats = getSeatsSafely(
-                                event.getId());
+                        EventCategory category,
+                        List<SeatDTO> seats) {
+                List<SeatDTO> safeSeats = seats == null
+                                ? List.of()
+                                : seats;
 
-                List<Double> prices = seats.stream()
+                List<Double> prices = safeSeats.stream()
                                 .map(
                                                 SeatDTO::getPrice)
                                 .filter(
@@ -496,30 +522,26 @@ public class EventService {
                                                 price -> price >= 0)
                                 .toList();
 
-                int totalSeats = seats.size();
+                int totalSeats = safeSeats.size();
 
-                int availableSeats = (int) seats.stream()
-                                .filter(
-                                                seat -> "AVAILABLE"
-                                                                .equalsIgnoreCase(
-                                                                                seat.getStatus()))
+                int availableSeats = (int) safeSeats
+                                .stream()
+                                .filter(seat -> "AVAILABLE"
+                                                .equalsIgnoreCase(
+                                                                seat.getStatus()))
                                 .count();
 
-                Double minPrice = prices.isEmpty()
-                                ? null
-                                : prices.stream()
-                                                .min(
-                                                                Double::compareTo)
-                                                .orElse(null);
+                Double minPrice = prices.stream()
+                                .min(
+                                                Double::compareTo)
+                                .orElse(null);
 
-                Double maxPrice = prices.isEmpty()
-                                ? null
-                                : prices.stream()
-                                                .max(
-                                                                Double::compareTo)
-                                                .orElse(null);
+                Double maxPrice = prices.stream()
+                                .max(
+                                                Double::compareTo)
+                                .orElse(null);
 
-                String status = resolveDisplayStatus(
+                String status = resolveAutomaticStatus(
                                 event);
 
                 String saleStatus = resolveSaleStatus(
@@ -575,6 +597,25 @@ public class EventService {
                                 .build();
         }
 
+        private Map<Long, EventCategory> loadCategories(
+                        List<Event> events) {
+                Set<Long> categoryIds = events.stream()
+                                .map(
+                                                Event::getCategoryId)
+                                .filter(
+                                                Objects::nonNull)
+                                .collect(
+                                                Collectors.toSet());
+
+                return categoryRepository
+                                .findAllById(categoryIds)
+                                .stream()
+                                .collect(
+                                                Collectors.toMap(
+                                                                EventCategory::getId,
+                                                                category -> category));
+        }
+
         private Set<Long> findCategoryIdsByKeyword(
                         String keyword) {
                 if (keyword == null
@@ -584,9 +625,10 @@ public class EventService {
 
                 return categoryRepository
                                 .findAll(
-                                                EventCategorySpecification.filter(
-                                                                keyword,
-                                                                null))
+                                                EventCategorySpecification
+                                                                .filter(
+                                                                                keyword,
+                                                                                null))
                                 .stream()
                                 .map(
                                                 EventCategory::getId)
@@ -597,15 +639,30 @@ public class EventService {
         private List<SeatDTO> getSeatsSafely(
                         Long eventId) {
                 try {
-                        List<SeatDTO> seats = seatClient
-                                        .getSeatsByEvent(
-                                                        eventId);
+                        List<SeatDTO> seats = seatClient.getSeatsByEvent(
+                                        eventId);
 
                         return seats == null
                                         ? List.of()
                                         : seats;
                 } catch (Exception exception) {
                         return List.of();
+                }
+        }
+
+        private List<SeatDTO> getSeatsRequired(
+                        Long eventId) {
+                try {
+                        List<SeatDTO> seats = seatClient.getSeatsByEvent(
+                                        eventId);
+
+                        return seats == null
+                                        ? List.of()
+                                        : seats;
+                } catch (Exception exception) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.SERVICE_UNAVAILABLE,
+                                        "Seat Service is unavailable");
                 }
         }
 
@@ -618,30 +675,33 @@ public class EventService {
                         return true;
                 }
 
-                Double eventPrice = response.getMinPrice();
+                Double eventMinPrice = response.getMinPrice();
 
-                if (eventPrice == null) {
+                Double eventMaxPrice = response.getMaxPrice();
+
+                if (eventMinPrice == null
+                                || eventMaxPrice == null) {
                         return false;
                 }
 
+                /*
+                 * Hai khoảng giá phải giao nhau.
+                 */
                 if (minPrice != null
-                                && eventPrice < minPrice) {
+                                && eventMaxPrice < minPrice) {
                         return false;
                 }
 
                 return maxPrice == null
-                                || eventPrice <= maxPrice;
+                                || eventMinPrice <= maxPrice;
         }
 
         private boolean matchesTicketStatus(
                         EventResponse response,
                         String ticketStatus) {
-                if (ticketStatus == null) {
-                        return true;
-                }
-
-                return ticketStatus.equals(
-                                response.getTicketStatus());
+                return ticketStatus == null
+                                || ticketStatus.equals(
+                                                response.getTicketStatus());
         }
 
         private void validateEvent(
@@ -653,16 +713,13 @@ public class EventService {
                 }
 
                 if (event.getName() == null
-                                || event
-                                                .getName()
-                                                .isBlank()) {
+                                || event.getName().isBlank()) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "Event name is required");
                 }
 
-                if (event
-                                .getName()
+                if (event.getName()
                                 .trim()
                                 .length() > 255) {
                         throw new ResponseStatusException(
@@ -670,13 +727,37 @@ public class EventService {
                                         "Event name is too long");
                 }
 
+                if (event.getDescription() != null
+                                && event.getDescription()
+                                                .trim()
+                                                .length() > 5000) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "Event description is too long");
+                }
+
                 if (event.getLocation() == null
-                                || event
-                                                .getLocation()
-                                                .isBlank()) {
+                                || event.getLocation().isBlank()) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "Event location is required");
+                }
+
+                if (event.getLocation()
+                                .trim()
+                                .length() > 500) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "Event location is too long");
+                }
+
+                if (event.getBanner() != null
+                                && event.getBanner()
+                                                .trim()
+                                                .length() > 1000) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "Event banner path is too long");
                 }
 
                 if (event.getCategoryId() == null) {
@@ -699,9 +780,17 @@ public class EventService {
                 }
 
                 if (event.getSaleStartAt() != null
+                                && event.getSaleStartAt()
+                                                .isAfter(
+                                                                event.getEventDate())) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "Sale start time must be before event time");
+                }
+
+                if (event.getSaleStartAt() != null
                                 && event.getSaleEndAt() != null
-                                && event
-                                                .getSaleStartAt()
+                                && event.getSaleStartAt()
                                                 .isAfter(
                                                                 event.getSaleEndAt())) {
                         throw new ResponseStatusException(
@@ -710,8 +799,7 @@ public class EventService {
                 }
 
                 if (event.getSaleEndAt() != null
-                                && event
-                                                .getSaleEndAt()
+                                && event.getSaleEndAt()
                                                 .isAfter(
                                                                 event.getEventDate())) {
                         throw new ResponseStatusException(
@@ -743,7 +831,8 @@ public class EventService {
                                                 ? "DRAFT"
                                                 : status
                                                                 .trim()
-                                                                .toUpperCase();
+                                                                .toUpperCase(
+                                                                                Locale.ROOT);
 
                 if ("ACTIVE".equals(value)) {
                         value = "OPEN";
@@ -775,10 +864,11 @@ public class EventService {
 
                 String value = ticketStatus
                                 .trim()
-                                .toUpperCase();
+                                .toUpperCase(
+                                                Locale.ROOT);
 
-                if (!ALLOWED_TICKET_STATUSES.contains(
-                                value)) {
+                if (!ALLOWED_TICKET_STATUSES
+                                .contains(value)) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "Invalid ticket status: "
@@ -788,12 +878,6 @@ public class EventService {
                 return value;
         }
 
-        private String resolveDisplayStatus(
-                        Event event) {
-                return resolveAutomaticStatus(
-                                event);
-        }
-
         private String resolveAutomaticStatus(
                         Event event) {
                 String current = normalizeRequiredStatus(
@@ -801,17 +885,24 @@ public class EventService {
 
                 if ("DRAFT".equals(current)
                                 || "CANCELLED".equals(current)
-                                || "SOLD_OUT".equals(current)
                                 || "COMPLETED".equals(current)) {
                         return current;
                 }
 
                 LocalDateTime now = LocalDateTime.now();
 
+                /*
+                 * SOLD_OUT vẫn thành COMPLETED
+                 * sau khi sự kiện bắt đầu.
+                 */
                 if (event.getEventDate() != null
                                 && !now.isBefore(
                                                 event.getEventDate())) {
                         return "COMPLETED";
+                }
+
+                if ("SOLD_OUT".equals(current)) {
+                        return "SOLD_OUT";
                 }
 
                 if ("CLOSED".equals(current)) {
@@ -819,7 +910,7 @@ public class EventService {
                 }
 
                 if (event.getSaleEndAt() != null
-                                && now.isAfter(
+                                && !now.isBefore(
                                                 event.getSaleEndAt())) {
                         return "CLOSED";
                 }
@@ -850,7 +941,7 @@ public class EventService {
                 }
 
                 if (event.getSaleEndAt() != null
-                                && now.isAfter(
+                                && !now.isBefore(
                                                 event.getSaleEndAt())) {
                         return "ENDED";
                 }
@@ -863,8 +954,7 @@ public class EventService {
                         String saleStatus,
                         int totalSeats,
                         int availableSeats) {
-                if ("UPCOMING".equals(
-                                eventStatus)
+                if ("UPCOMING".equals(eventStatus)
                                 || "NOT_STARTED".equals(
                                                 saleStatus)) {
                         return "UPCOMING";
@@ -967,11 +1057,23 @@ public class EventService {
                 }
         }
 
+        private void validateDateRange(
+                        LocalDateTime fromDate,
+                        LocalDateTime toDate) {
+                if (fromDate != null
+                                && toDate != null
+                                && fromDate.isAfter(toDate)) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "fromDate must be before or equal to toDate");
+                }
+        }
+
         private Sort createSort(
                         String sortBy,
                         String sortDirection) {
-                String field = ALLOWED_SORT_FIELDS.contains(
-                                sortBy)
+                String field = ALLOWED_SORT_FIELDS
+                                .contains(sortBy)
                                                 ? sortBy
                                                 : "eventDate";
 
@@ -995,12 +1097,17 @@ public class EventService {
                 }
 
                 if (file.getOriginalFilename() == null
-                                || file
-                                                .getOriginalFilename()
+                                || file.getOriginalFilename()
                                                 .isBlank()) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "Banner file name is empty");
+                }
+
+                if (file.getSize() > MAX_BANNER_SIZE_BYTES) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.PAYLOAD_TOO_LARGE,
+                                        "Banner file must not exceed 5 MB");
                 }
 
                 String contentType = file.getContentType();
@@ -1008,7 +1115,8 @@ public class EventService {
                 if (!Set.of(
                                 "image/jpeg",
                                 "image/png",
-                                "image/webp").contains(contentType)) {
+                                "image/webp")
+                                .contains(contentType)) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "Only JPEG, PNG and WEBP images are allowed");
@@ -1026,8 +1134,7 @@ public class EventService {
                                 ".png",
                                 ".webp");
 
-                if (!allowed.contains(
-                                extension)) {
+                if (!allowed.contains(extension)) {
                         extension = switch (String.valueOf(
                                         contentType)) {
                                 case "image/jpeg" ->
@@ -1055,8 +1162,7 @@ public class EventService {
 
         private String getExtension(
                         String fileName) {
-                int dotIndex = fileName.lastIndexOf(
-                                ".");
+                int dotIndex = fileName.lastIndexOf(".");
 
                 if (dotIndex < 0) {
                         return "";
@@ -1064,7 +1170,8 @@ public class EventService {
 
                 return fileName
                                 .substring(dotIndex)
-                                .toLowerCase();
+                                .toLowerCase(
+                                                Locale.ROOT);
         }
 
         private void deleteOldBannerFile(
@@ -1080,14 +1187,34 @@ public class EventService {
                                         "/uploads/events/"
                                                         .length());
 
-                        Path filePath = Paths
-                                        .get(
-                                                        uploadRoot,
-                                                        "events",
-                                                        fileName)
+                        Path uploadDirectory = Paths.get(
+                                        uploadRoot,
+                                        "events")
                                         .toAbsolutePath()
                                         .normalize();
 
+                        Path filePath = uploadDirectory
+                                        .resolve(fileName)
+                                        .normalize();
+
+                        if (!filePath.startsWith(
+                                        uploadDirectory)) {
+                                return;
+                        }
+
+                        Files.deleteIfExists(
+                                        filePath);
+                } catch (Exception ignored) {
+                }
+        }
+
+        private void deleteFileQuietly(
+                        Path filePath) {
+                if (filePath == null) {
+                        return;
+                }
+
+                try {
                         Files.deleteIfExists(
                                         filePath);
                 } catch (Exception ignored) {

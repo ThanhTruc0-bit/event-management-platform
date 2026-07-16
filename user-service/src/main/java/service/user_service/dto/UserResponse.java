@@ -2,15 +2,20 @@ package service.user_service.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
+@NoArgsConstructor
 @AllArgsConstructor
-public class AuthResponse {
+public class UserResponse {
 
-    private String token;
-    private String tokenType;
-    private Long userId;
+    private Long id;
+
     private String name;
+
     private String email;
+
+    private String phone;
+
     private String role;
 }

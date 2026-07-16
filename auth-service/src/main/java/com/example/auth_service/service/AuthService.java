@@ -13,7 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
-
+import com.example.auth_service.dto.UpdateProfileRequest;
 import java.util.Locale;
 
 @Service
@@ -293,7 +293,122 @@ public class AuthService {
             );
         }
     }
+    public UserDTO updateProfile(
+        String authorizationHeader,
+        UpdateProfileRequest request
+) {
+    if (request == null) {
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Request body is required"
+        );
+    }
 
+    if (
+            request.getName() == null ||
+            request.getName().isBlank()
+    ) {
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Name is required"
+        );
+    }
+
+    String normalizedName =
+            request.getName().trim();
+
+    if (normalizedName.length() > 100) {
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Name cannot exceed 100 characters"
+        );
+    }
+
+    String normalizedPhone =
+            normalizeNullableValue(
+                    request.getPhone()
+            );
+
+    if (
+            normalizedPhone != null &&
+            !normalizedPhone.matches(
+                    "^[0-9+() .-]{6,30}$"
+            )
+    ) {
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Phone is invalid"
+        );
+    }
+
+    Long userId =
+            getUserIdFromAuthorizationHeader(
+                    authorizationHeader
+            );
+
+    request.setName(
+            normalizedName
+    );
+
+    request.setPhone(
+            normalizedPhone
+    );
+
+    try {
+        UserDTO updatedUser =
+                userClient.updateProfile(
+                        userId,
+                        request,
+                        userId
+                );
+
+        if (updatedUser == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Cannot update profile"
+            );
+        }
+
+        return sanitizeUser(
+                updatedUser
+        );
+    } catch (
+            FeignException.BadRequest exception
+    ) {
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                extractFeignMessage(
+                        exception,
+                        "Invalid profile information"
+                )
+        );
+    } catch (
+            FeignException.Forbidden exception
+    ) {
+        throw new ResponseStatusException(
+                HttpStatus.FORBIDDEN,
+                "You cannot update this profile"
+        );
+    } catch (
+            FeignException.NotFound exception
+    ) {
+        throw new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "User not found"
+        );
+    } catch (
+            ResponseStatusException exception
+    ) {
+        throw exception;
+    } catch (
+            FeignException exception
+    ) {
+        throw new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "User Service is unavailable"
+        );
+    }
+}
     private void validateRegisterRequest(
             RegisterRequest request
     ) {
@@ -425,7 +540,36 @@ public class AuthService {
                 "Invalid email or password"
         );
     }
+    private Long getUserIdFromAuthorizationHeader(
+        String authorizationHeader
+) {
+    if (
+            authorizationHeader == null ||
+            !authorizationHeader.startsWith(
+                    "Bearer "
+            )
+    ) {
+        throw new ResponseStatusException(
+                HttpStatus.UNAUTHORIZED,
+                "Token is required"
+        );
+    }
 
+    String token =
+            authorizationHeader
+                    .substring(7)
+                    .trim();
+
+    if (token.isBlank()) {
+        throw new ResponseStatusException(
+                HttpStatus.UNAUTHORIZED,
+                "Token is required"
+        );
+    }
+
+    return jwtService
+            .getUserIdFromToken(token);
+}
     private String extractFeignMessage(
             FeignException exception,
             String defaultMessage

@@ -4,6 +4,7 @@ services:
     container_name: eureka-server
     ports:
       - "8761:8761"
+    restart: unless-stopped
 
   mysql-db:
     image: mysql:8.0
@@ -14,12 +15,34 @@ services:
       MYSQL_ROOT_PASSWORD: 123456
     volumes:
       - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-uroot",
+          "-p123456"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    restart: unless-stopped
 
   redis-server:
-    image: redis
+    image: redis:7
     container_name: redis-server
     ports:
       - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -27,6 +50,13 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    restart: unless-stopped
 
   api-gateway:
     build: ./api-gateway
@@ -34,8 +64,11 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - eureka-server
-      - redis-server
+      eureka-server:
+        condition: service_started
+      redis-server:
+        condition: service_healthy
+    restart: unless-stopped
 
   auth-service:
     build: ./auth-service
@@ -43,9 +76,13 @@ services:
     ports:
       - "8090:8090"
     depends_on:
-      - eureka-server
-      - redis-server
-      - mysql-db
+      eureka-server:
+        condition: service_started
+      redis-server:
+        condition: service_healthy
+      mysql-db:
+        condition: service_healthy
+    restart: unless-stopped
 
   user-service:
     build: ./user-service
@@ -53,8 +90,11 @@ services:
     ports:
       - "8083:8083"
     depends_on:
-      - eureka-server
-      - mysql-db
+      eureka-server:
+        condition: service_started
+      mysql-db:
+        condition: service_healthy
+    restart: unless-stopped
 
   event-service:
     build: ./event-service
@@ -64,11 +104,15 @@ services:
     volumes:
       - ./event-service/uploads:/app/uploads
     environment:
-      - FILE_UPLOAD_DIR=/app/uploads
+      FILE_UPLOAD_DIR: /app/uploads
     depends_on:
-      - eureka-server
-      - redis-server
-      - mysql-db
+      eureka-server:
+        condition: service_started
+      redis-server:
+        condition: service_healthy
+      mysql-db:
+        condition: service_healthy
+    restart: unless-stopped
 
   seat-service:
     build: ./seat-service
@@ -76,8 +120,11 @@ services:
     ports:
       - "8085:8085"
     depends_on:
-      - eureka-server
-      - mysql-db
+      eureka-server:
+        condition: service_started
+      mysql-db:
+        condition: service_healthy
+    restart: unless-stopped
 
   ticket-service:
     build: ./ticket-service
@@ -85,28 +132,34 @@ services:
     ports:
       - "8086:8086"
     depends_on:
-      - eureka-server
-      - event-service
-      - seat-service
-      - mysql-db
-
-  payment-service:
-    build: ./payment-service
-    container_name: payment-service
-    ports:
-      - "8088:8088"
-    depends_on:
-      - eureka-server
-      - mysql-db
+      eureka-server:
+        condition: service_started
+      event-service:
+        condition: service_started
+      seat-service:
+        condition: service_started
+      mysql-db:
+        condition: service_healthy
+    restart: unless-stopped
 
   notification-service:
     build: ./notification-service
     container_name: notification-service
     ports:
       - "8089:8089"
+    environment:
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
     depends_on:
-      - eureka-server
-      - rabbitmq
+      eureka-server:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      mysql-db:
+        condition: service_healthy
+    restart: unless-stopped
 
   booking-service:
     build: ./booking-service
@@ -114,14 +167,37 @@ services:
     ports:
       - "8087:8087"
     depends_on:
-      - eureka-server
-      - user-service
-      - event-service
-      - seat-service
-      - payment-service
-      - notification-service
-      - rabbitmq
-      - mysql-db
+      eureka-server:
+        condition: service_started
+      user-service:
+        condition: service_started
+      event-service:
+        condition: service_started
+      seat-service:
+        condition: service_started
+      ticket-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      mysql-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  payment-service:
+    build: ./payment-service
+    container_name: payment-service
+    ports:
+      - "8088:8088"
+    depends_on:
+      eureka-server:
+        condition: service_started
+      booking-service:
+        condition: service_started
+      mysql-db:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   mysql-data:

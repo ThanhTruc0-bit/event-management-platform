@@ -1,6 +1,7 @@
 package com.example.auth_service.feign;
 
 import com.example.auth_service.dto.RegisterRequest;
+import com.example.auth_service.dto.UpdateProfileRequest;
 import com.example.auth_service.dto.UserDTO;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;
@@ -21,5 +22,16 @@ public interface UserClient {
     @PostMapping("/users")
     UserDTO createUser(
             @RequestBody RegisterRequest request
+    );
+
+    @PutMapping("/users/{id}/profile")
+    UserDTO updateProfile(
+            @PathVariable("id") Long id,
+
+            @RequestBody
+            UpdateProfileRequest request,
+
+            @RequestHeader("X-User-Id")
+            Long currentUserId
     );
 }

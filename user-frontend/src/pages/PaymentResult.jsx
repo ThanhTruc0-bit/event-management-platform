@@ -152,11 +152,14 @@ function PaymentResult() {
     const paymentStatus = useMemo(() => {
         return String(
             payment?.status ||
-            booking?.status ||
             statusFromUrl ||
             ""
         ).toUpperCase();
-    }, [payment, booking, statusFromUrl]);
+    }, [payment, statusFromUrl]);
+
+    const bookingStatus = String(
+        booking?.status || ""
+    ).toUpperCase();
 
     const responseCode =
         payment?.vnpResponseCode ||
@@ -174,28 +177,74 @@ function PaymentResult() {
         searchParams.get("vnp_BankCode") ||
         searchParams.get("bankCode");
 
-    const isSuccess =
+    const paymentSucceeded =
         paymentStatus === "SUCCESS" ||
-        paymentStatus === "PAID" ||
         responseCode === "00";
 
+    const synchronizationPending =
+        paymentSucceeded &&
+        bookingStatus !== "PAID";
+
+    const isSuccess =
+        paymentSucceeded &&
+        bookingStatus === "PAID";
+
     const isFailed =
-        paymentStatus === "FAILED" ||
-        paymentStatus === "CANCELLED" ||
-        paymentStatus === "EXPIRED" ||
-        (responseCode && responseCode !== "00");
+        !paymentSucceeded &&
+        (
+            paymentStatus === "FAILED" ||
+            paymentStatus === "CANCELLED" ||
+            paymentStatus === "EXPIRED" ||
+            (responseCode && responseCode !== "00")
+        );
 
     const title = isSuccess
         ? "Thanh toán thành công"
-        : isFailed
-            ? "Thanh toán thất bại"
-            : "Đang xử lý kết quả thanh toán";
+        : synchronizationPending
+            ? "Thanh toán thành công - đang đồng bộ vé"
+            : isFailed
+                ? "Thanh toán thất bại"
+                : "Đang xử lý kết quả thanh toán";
 
     const description = isSuccess
-        ? "Booking của bạn đã được thanh toán. Hệ thống đã ghi nhận giao dịch và tạo vé QR nếu ticket-service hoạt động bình thường."
-        : isFailed
-            ? "Giao dịch chưa hoàn tất hoặc hệ thống cập nhật booking bị lỗi. Bạn có thể kiểm tra lại đơn đặt vé."
-            : "Hệ thống đang tải thêm thông tin thanh toán từ API.";
+        ? "Giao dịch đã hoàn tất, booking đã chuyển PAID và vé QR đã được phát hành."
+        : synchronizationPending
+            ? "VNPay đã ghi nhận thanh toán thành công. Booking hoặc vé QR đang được hệ thống đồng bộ lại."
+            : isFailed
+                ? "Giao dịch không thành công hoặc đã bị hủy."
+                : "Hệ thống đang tải thêm thông tin giao dịch.";
+
+    const retryBookingSynchronization = async () => {
+        if (!payment?.id) {
+            setApiError(
+                "Không tìm thấy payment để đồng bộ lại."
+            );
+            return;
+        }
+
+        try {
+            setLoading(true);
+            setApiError("");
+
+            await axiosClient.put(
+                `/payment-service/payments/${payment.id}/retry-booking-sync`
+            );
+
+            await loadResultData();
+        } catch (error) {
+            console.error(
+                "Retry booking synchronization failed:",
+                error
+            );
+
+            setApiError(
+                error?.response?.data?.message ||
+                "Thanh toán đã thành công nhưng hệ thống chưa đồng bộ được booking và vé."
+            );
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const formatMoney = (value) => {
         if (value === null || value === undefined || value === "") {
@@ -223,6 +272,18 @@ function PaymentResult() {
             "Đang cập nhật"
         );
     };
+
+    const validTickets = tickets.filter((ticketItem) => {
+        const ticketStatus = String(
+            ticketItem?.status || ""
+        ).toUpperCase();
+
+        return [
+            "VALID",
+            "ACTIVE",
+            "PAID",
+        ].includes(ticketStatus);
+    });
 
     const totalAmount =
         payment?.amount ??
@@ -368,9 +429,9 @@ function PaymentResult() {
                                         </div>
                                     ))}
 
-                                    {tickets.length > 0 && (
+                                    {validTickets.length > 0 && (
                                         <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-700 font-bold">
-                                            Đã tạo {tickets.length} vé QR.
+                                            Đã tạo {validTickets.length} vé QR hợp lệ.
                                         </div>
                                     )}
                                 </div>
@@ -378,7 +439,7 @@ function PaymentResult() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-8">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-8">
                         <Link
                             to="/"
                             className="h-12 rounded-2xl bg-slate-100 text-slate-800 font-black hover:bg-slate-200 flex items-center justify-center gap-2"
@@ -395,6 +456,26 @@ function PaymentResult() {
                             Booking
                         </Link>
 
+                        {synchronizationPending && payment?.id && (
+                            <button
+                                type="button"
+                                onClick={retryBookingSynchronization}
+                                disabled={loading}
+                                className="h-12 rounded-2xl bg-amber-500 text-white font-black hover:bg-amber-600 disabled:opacity-60 flex items-center justify-center gap-2"
+                            >
+                                {loading ? (
+                                    <Loader2
+                                        size={18}
+                                        className="animate-spin"
+                                    />
+                                ) : (
+                                    <RotateCcw size={18} />
+                                )}
+
+                                Đồng bộ lại vé
+                            </button>
+                        )}
+
                         {isSuccess && bookingId ? (
                             <Link
                                 to={`/my-tickets?bookingId=${bookingId}`}
@@ -403,7 +484,7 @@ function PaymentResult() {
                                 <Ticket size={18} />
                                 Vé QR
                             </Link>
-                        ) : (
+                        ) : !synchronizationPending ? (
                             <Link
                                 to="/events"
                                 className="h-12 rounded-2xl bg-emerald-500 text-white font-black hover:bg-emerald-600 flex items-center justify-center gap-2"
@@ -411,7 +492,7 @@ function PaymentResult() {
                                 <RotateCcw size={18} />
                                 Đặt lại
                             </Link>
-                        )}
+                        ) : null}
                     </div>
                 </div>
             </div>

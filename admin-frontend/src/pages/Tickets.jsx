@@ -29,791 +29,1334 @@ const DEFAULT_FILTERS = {
     sortDirection: "desc",
 };
 
+const TICKET_STATUSES = [
+    "VALID",
+    "ACTIVE",
+    "PAID",
+    "USED",
+    "CHECKED_IN",
+    "CANCELLED",
+    "EXPIRED",
+    "FAILED",
+];
+
+const VALID_STATUSES = [
+    "VALID",
+    "ACTIVE",
+    "PAID",
+];
+
+const USED_STATUSES = [
+    "USED",
+    "CHECKED_IN",
+];
+
+const INVALID_STATUSES = [
+    "CANCELLED",
+    "EXPIRED",
+    "FAILED",
+];
+
+function normalizeStatus(value) {
+    return String(value || "")
+        .trim()
+        .toUpperCase();
+}
+
+function normalizeList(data) {
+    if (Array.isArray(data)) {
+        return data;
+    }
+
+    if (Array.isArray(data?.content)) {
+        return data.content;
+    }
+
+    if (Array.isArray(data?.data?.content)) {
+        return data.data.content;
+    }
+
+    if (Array.isArray(data?.data)) {
+        return data.data;
+    }
+
+    if (Array.isArray(data?.items)) {
+        return data.items;
+    }
+
+    return [];
+}
+
+function normalizePage(
+    data,
+    fallbackSize = 10
+) {
+    if (Array.isArray(data)) {
+        return {
+            content: data,
+            totalElements: data.length,
+            totalPages:
+                data.length > 0
+                    ? 1
+                    : 0,
+            number: 0,
+            size: data.length,
+        };
+    }
+
+    const pageData =
+        data?.data?.content
+            ? data.data
+            : data;
+
+    return {
+        content:
+            Array.isArray(
+                pageData?.content
+            )
+                ? pageData.content
+                : [],
+
+        totalElements:
+            Number(
+                pageData?.totalElements
+            ) || 0,
+
+        totalPages:
+            Number(
+                pageData?.totalPages
+            ) || 0,
+
+        number:
+            Number(
+                pageData?.number
+            ) || 0,
+
+        size:
+            Number(
+                pageData?.size
+            ) || fallbackSize,
+    };
+}
+
+function buildMap(items) {
+    return items.reduce(
+        (result, item) => {
+            if (
+                item?.id !== null &&
+                item?.id !== undefined
+            ) {
+                result[
+                    String(item.id)
+                ] = item;
+            }
+
+            return result;
+        },
+        {}
+    );
+}
+
+function getErrorMessage(
+    error,
+    fallback
+) {
+    const status =
+        error?.response?.status;
+
+    const data =
+        error?.response?.data;
+
+    const message =
+        (
+            typeof data === "string"
+                ? data
+                : data?.message ||
+                data?.error
+        ) ||
+        error?.message;
+
+    if (status === 401) {
+        return (
+            message ||
+            "Phiên đăng nhập đã hết hạn."
+        );
+    }
+
+    if (status === 403) {
+        return (
+            message ||
+            "Bạn không có quyền quản lý vé."
+        );
+    }
+
+    if (status === 409) {
+        return (
+            message ||
+            "Dữ liệu vé đã thay đổi hoặc thao tác không hợp lệ."
+        );
+    }
+
+    return (
+        message ||
+        fallback
+    );
+}
+
+async function fetchAllPages(
+    endpoint,
+    params = {},
+    maxPages = 30
+) {
+    const firstResponse =
+        await axiosClient.get(
+            endpoint,
+            {
+                params: {
+                    ...params,
+                    page: 0,
+                    size: 100,
+                },
+            }
+        );
+
+    if (
+        Array.isArray(
+            firstResponse.data
+        )
+    ) {
+        return firstResponse.data;
+    }
+
+    const firstPage =
+        normalizePage(
+            firstResponse.data,
+            100
+        );
+
+    const result = [
+        ...firstPage.content,
+    ];
+
+    const totalPages =
+        Math.min(
+            firstPage.totalPages,
+            maxPages
+        );
+
+    for (
+        let currentPage = 1;
+        currentPage < totalPages;
+        currentPage += 1
+    ) {
+        const response =
+            await axiosClient.get(
+                endpoint,
+                {
+                    params: {
+                        ...params,
+                        page:
+                            currentPage,
+                        size: 100,
+                    },
+                }
+            );
+
+        result.push(
+            ...normalizeList(
+                response.data
+            )
+        );
+    }
+
+    return result;
+}
+
+function formatMoney(value) {
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
+        return "Chưa cập nhật";
+    }
+
+    const number =
+        Number(value);
+
+    if (
+        Number.isNaN(number)
+    ) {
+        return String(value);
+    }
+
+    if (number === 0) {
+        return "Miễn phí";
+    }
+
+    return `${number.toLocaleString(
+        "vi-VN"
+    )} đ`;
+}
+
+function formatDateTime(value) {
+    if (!value) {
+        return "Chưa cập nhật";
+    }
+
+    const date =
+        new Date(value);
+
+    if (
+        Number.isNaN(
+            date.getTime()
+        )
+    ) {
+        return String(value)
+            .replace(
+                "T",
+                " "
+            );
+    }
+
+    return date.toLocaleString(
+        "vi-VN",
+        {
+            hour:
+                "2-digit",
+            minute:
+                "2-digit",
+            day:
+                "2-digit",
+            month:
+                "2-digit",
+            year:
+                "numeric",
+        }
+    );
+}
+
+function getQrImage(ticket) {
+    const image =
+        ticket?.qrImage ||
+        ticket?.qrCodeImage ||
+        ticket?.qrImageUrl ||
+        ticket?.imageUrl;
+
+    if (!image) {
+        return "";
+    }
+
+    const value =
+        String(image);
+
+    if (
+        value.startsWith(
+            "data:image"
+        ) ||
+        value.startsWith(
+            "http://"
+        ) ||
+        value.startsWith(
+            "https://"
+        )
+    ) {
+        return value;
+    }
+
+    if (
+        value.startsWith(
+            "/uploads"
+        )
+    ) {
+        return `/api/ticket-service${value}`;
+    }
+
+    if (
+        value.length > 100
+    ) {
+        return `data:image/png;base64,${value}`;
+    }
+
+    return value;
+}
+
+function getStatusInfo(status) {
+    const value =
+        normalizeStatus(status);
+
+    if (
+        VALID_STATUSES.includes(
+            value
+        )
+    ) {
+        return {
+            text: value,
+
+            icon:
+                CheckCircle2,
+
+            className:
+                "bg-emerald-100 text-emerald-700",
+
+            borderClass:
+                "border-emerald-200",
+        };
+    }
+
+    if (
+        USED_STATUSES.includes(
+            value
+        )
+    ) {
+        return {
+            text: value,
+
+            icon:
+                ShieldCheck,
+
+            className:
+                "bg-blue-100 text-blue-700",
+
+            borderClass:
+                "border-blue-200",
+        };
+    }
+
+    if (
+        INVALID_STATUSES.includes(
+            value
+        )
+    ) {
+        return {
+            text: value,
+
+            icon:
+                XCircle,
+
+            className:
+                "bg-red-100 text-red-700",
+
+            borderClass:
+                "border-red-200",
+        };
+    }
+
+    return {
+        text:
+            value ||
+            "UNKNOWN",
+
+        icon:
+            Ticket,
+
+        className:
+            "bg-slate-100 text-slate-700",
+
+        borderClass:
+            "border-slate-200",
+    };
+}
+
 function Tickets() {
-    const [tickets, setTickets] = useState([]);
+    const [
+        tickets,
+        setTickets,
+    ] = useState([]);
 
-    const [eventsById, setEventsById] = useState({});
-    const [usersById, setUsersById] = useState({});
-    const [seatsById, setSeatsById] = useState({});
-    const [bookingsById, setBookingsById] = useState({});
+    const [
+        eventsById,
+        setEventsById,
+    ] = useState({});
 
-    const [filters, setFilters] = useState(DEFAULT_FILTERS);
-    const [appliedFilters, setAppliedFilters] =
-        useState(DEFAULT_FILTERS);
+    const [
+        usersById,
+        setUsersById,
+    ] = useState({});
 
-    const [page, setPage] = useState(0);
-    const [size, setSize] = useState(10);
-    const [totalPages, setTotalPages] = useState(0);
-    const [totalElements, setTotalElements] = useState(0);
+    const [
+        seatsById,
+        setSeatsById,
+    ] = useState({});
 
-    const [loading, setLoading] = useState(false);
-    const [referenceLoading, setReferenceLoading] = useState(false);
-    const [actionId, setActionId] = useState(null);
+    const [
+        bookingsById,
+        setBookingsById,
+    ] = useState({});
 
-    const [error, setError] = useState("");
-    const [selectedTicket, setSelectedTicket] = useState(null);
+    const [
+        filters,
+        setFilters,
+    ] = useState({
+        ...DEFAULT_FILTERS,
+    });
+
+    const [
+        appliedFilters,
+        setAppliedFilters,
+    ] = useState({
+        ...DEFAULT_FILTERS,
+    });
+
+    const [
+        page,
+        setPage,
+    ] = useState(0);
+
+    const [
+        size,
+        setSize,
+    ] = useState(10);
+
+    const [
+        totalPages,
+        setTotalPages,
+    ] = useState(0);
+
+    const [
+        totalElements,
+        setTotalElements,
+    ] = useState(0);
+
+    const [
+        loading,
+        setLoading,
+    ] = useState(false);
+
+    const [
+        referenceLoading,
+        setReferenceLoading,
+    ] = useState(false);
+
+    const [
+        actionId,
+        setActionId,
+    ] = useState(null);
+
+    const [
+        error,
+        setError,
+    ] = useState("");
+
+    const [
+        selectedTicket,
+        setSelectedTicket,
+    ] = useState(null);
 
     useEffect(() => {
         loadReferenceData();
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
         loadTickets();
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page, size, appliedFilters]);
+    }, [
+        page,
+        size,
+        appliedFilters,
+    ]);
 
-    const normalizeList = (data) => {
-        if (Array.isArray(data)) {
-            return data;
+    useEffect(() => {
+        if (
+            totalPages > 0 &&
+            page >= totalPages
+        ) {
+            setPage(
+                totalPages - 1
+            );
         }
+    }, [
+        page,
+        totalPages,
+    ]);
 
-        if (Array.isArray(data?.content)) {
-            return data.content;
-        }
-
-        if (Array.isArray(data?.data)) {
-            return data.data;
-        }
-
-        if (Array.isArray(data?.items)) {
-            return data.items;
-        }
-
-        return [];
-    };
-
-    const normalizePage = (data) => {
-        if (Array.isArray(data)) {
-            return {
-                content: data,
-                totalElements: data.length,
-                totalPages: data.length > 0 ? 1 : 0,
-                number: 0,
-                size: data.length,
-            };
-        }
-
-        return {
-            content: Array.isArray(data?.content)
-                ? data.content
-                : [],
-            totalElements: Number(data?.totalElements) || 0,
-            totalPages: Number(data?.totalPages) || 0,
-            number: Number(data?.number) || 0,
-            size: Number(data?.size) || size,
-        };
-    };
-
-    const buildMap = (items) => {
-        const nextMap = {};
-
-        items.forEach((item) => {
-            if (
-                item?.id !== null &&
-                item?.id !== undefined
-            ) {
-                nextMap[String(item.id)] = item;
-            }
-        });
-
-        return nextMap;
-    };
-
-    const loadReferenceData = async () => {
-        try {
-            setReferenceLoading(true);
-
-            const [
-                eventResult,
-                userResult,
-                seatResult,
-                bookingResult,
-            ] = await Promise.allSettled([
-                axiosClient.get(
-                    "/event-service/events",
-                    {
-                        params: {
-                            page: 0,
-                            size: 100,
-                            sortBy: "eventDate",
-                            sortDirection: "asc",
-                        },
-                    }
-                ),
-
-                axiosClient.get(
-                    "/user-service/users"
-                ),
-
-                axiosClient.get(
-                    "/seat-service/seats"
-                ),
-
-                axiosClient.get(
-                    "/booking-service/bookings"
-                ),
-            ]);
-
-            if (eventResult.status === "fulfilled") {
-                const events = normalizeList(
-                    eventResult.value.data
+    const loadReferenceData =
+        async () => {
+            try {
+                setReferenceLoading(
+                    true
                 );
 
-                setEventsById(buildMap(events));
-            } else {
-                console.warn(
-                    "Không tải được danh sách sự kiện:",
-                    eventResult.reason
+                const [
+                    eventResult,
+                    userResult,
+                    seatResult,
+                    bookingResult,
+                ] =
+                    await Promise.allSettled([
+                        fetchAllPages(
+                            "/event-service/events",
+                            {
+                                publicOnly:
+                                    false,
+
+                                sortBy:
+                                    "eventDate",
+
+                                sortDirection:
+                                    "asc",
+                            }
+                        ),
+
+                        fetchAllPages(
+                            "/user-service/users",
+                            {
+                                sortBy:
+                                    "id",
+
+                                sortDirection:
+                                    "asc",
+                            }
+                        ),
+
+                        fetchAllPages(
+                            "/seat-service/seats",
+                            {
+                                sortBy:
+                                    "id",
+
+                                sortDirection:
+                                    "asc",
+                            }
+                        ),
+
+                        fetchAllPages(
+                            "/booking-service/bookings",
+                            {
+                                sortBy:
+                                    "bookingDate",
+
+                                sortDirection:
+                                    "desc",
+                            }
+                        ),
+                    ]);
+
+                setEventsById(
+                    eventResult.status ===
+                        "fulfilled"
+                        ? buildMap(
+                            eventResult.value
+                        )
+                        : {}
                 );
 
-                setEventsById({});
-            }
-
-            if (userResult.status === "fulfilled") {
-                const users = normalizeList(
-                    userResult.value.data
+                setUsersById(
+                    userResult.status ===
+                        "fulfilled"
+                        ? buildMap(
+                            userResult.value
+                        )
+                        : {}
                 );
 
-                setUsersById(buildMap(users));
-            } else {
-                console.warn(
-                    "Không tải được danh sách người dùng:",
-                    userResult.reason
-                );
-
-                setUsersById({});
-            }
-
-            if (seatResult.status === "fulfilled") {
-                const seats = normalizeList(
-                    seatResult.value.data
-                );
-
-                setSeatsById(buildMap(seats));
-            } else {
-                console.warn(
-                    "Không tải được danh sách ghế:",
-                    seatResult.reason
-                );
-
-                setSeatsById({});
-            }
-
-            if (bookingResult.status === "fulfilled") {
-                const bookings = normalizeList(
-                    bookingResult.value.data
+                setSeatsById(
+                    seatResult.status ===
+                        "fulfilled"
+                        ? buildMap(
+                            seatResult.value
+                        )
+                        : {}
                 );
 
                 setBookingsById(
-                    buildMap(bookings)
+                    bookingResult.status ===
+                        "fulfilled"
+                        ? buildMap(
+                            bookingResult.value
+                        )
+                        : {}
                 );
-            } else {
-                console.warn(
-                    "Không tải được danh sách booking:",
-                    bookingResult.reason
-                );
 
-                setBookingsById({});
-            }
-        } finally {
-            setReferenceLoading(false);
-        }
-    };
-
-    const loadTickets = async () => {
-        try {
-            setLoading(true);
-            setError("");
-
-            const response = await axiosClient.get(
-                "/ticket-service/tickets",
-                {
-                    params: {
-                        page,
-                        size,
-
-                        keyword:
-                            appliedFilters.keyword.trim() ||
-                            undefined,
-
-                        status:
-                            appliedFilters.status ||
-                            undefined,
-
-                        ticketType:
-                            appliedFilters.ticketType.trim() ||
-                            undefined,
-
-                        userId:
-                            appliedFilters.userId ||
-                            undefined,
-
-                        eventId:
-                            appliedFilters.eventId ||
-                            undefined,
-
-                        bookingId:
-                            appliedFilters.bookingId ||
-                            undefined,
-
-                        sortBy:
-                            appliedFilters.sortBy,
-
-                        sortDirection:
-                            appliedFilters.sortDirection,
-                    },
+                if (
+                    eventResult.status ===
+                    "rejected"
+                ) {
+                    console.warn(
+                        "Không tải được sự kiện:",
+                        eventResult.reason
+                    );
                 }
-            );
 
-            const pageData = normalizePage(
-                response.data
-            );
+                if (
+                    userResult.status ===
+                    "rejected"
+                ) {
+                    console.warn(
+                        "Không tải được người dùng:",
+                        userResult.reason
+                    );
+                }
 
-            setTickets(pageData.content);
-            setTotalElements(
-                pageData.totalElements
-            );
-            setTotalPages(
-                pageData.totalPages
-            );
+                if (
+                    seatResult.status ===
+                    "rejected"
+                ) {
+                    console.warn(
+                        "Không tải được ghế:",
+                        seatResult.reason
+                    );
+                }
 
-            if (
-                pageData.totalPages > 0 &&
-                page >= pageData.totalPages
-            ) {
-                setPage(
-                    pageData.totalPages - 1
+                if (
+                    bookingResult.status ===
+                    "rejected"
+                ) {
+                    console.warn(
+                        "Không tải được booking:",
+                        bookingResult.reason
+                    );
+                }
+            } finally {
+                setReferenceLoading(
+                    false
                 );
             }
-        } catch (requestError) {
-            console.error(
-                "Không tải được tickets:",
-                requestError
-            );
-
-            setTickets([]);
-            setTotalElements(0);
-            setTotalPages(0);
-
-            setError(
-                requestError?.response?.data
-                    ?.message ||
-                requestError?.response?.data
-                    ?.error ||
-                requestError?.message ||
-                "Không tải được danh sách vé."
-            );
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const reloadAll = async () => {
-        await Promise.all([
-            loadReferenceData(),
-            loadTickets(),
-        ]);
-    };
-
-    const getTicketId = (ticket) => {
-        return (
-            ticket?.id ??
-            ticket?.ticketId
-        );
-    };
-
-    const getEvent = (eventId) => {
-        return eventsById[
-            String(eventId)
-        ];
-    };
-
-    const getUser = (userId) => {
-        return usersById[
-            String(userId)
-        ];
-    };
-
-    const getSeat = (seatId) => {
-        return seatsById[
-            String(seatId)
-        ];
-    };
-
-    const getBooking = (bookingId) => {
-        return bookingsById[
-            String(bookingId)
-        ];
-    };
-
-    const getEventName = (eventId) => {
-        const event = getEvent(eventId);
-
-        return (
-            event?.name ||
-            `Event #${eventId}`
-        );
-    };
-
-    const getUserName = (userId) => {
-        const user = getUser(userId);
-
-        return (
-            user?.fullName ||
-            user?.name ||
-            user?.username ||
-            user?.email ||
-            `User #${userId}`
-        );
-    };
-
-    const getSeatName = (seatId) => {
-        const seat = getSeat(seatId);
-
-        return (
-            seat?.seatNumber ||
-            seat?.name ||
-            seat?.code ||
-            `Ghế #${seatId}`
-        );
-    };
-
-    const getSeatType = (ticket) => {
-        const seat = getSeat(
-            ticket?.seatId
-        );
-
-        return (
-            seat?.seatType ||
-            seat?.ticketType ||
-            ticket?.ticketType ||
-            "STANDARD"
-        );
-    };
-
-    const getBookingCode = (bookingId) => {
-        const booking = getBooking(
-            bookingId
-        );
-
-        return (
-            booking?.bookingCode ||
-            `Booking #${bookingId}`
-        );
-    };
-
-    const normalizeStatus = (value) => {
-        return String(value || "")
-            .trim()
-            .toUpperCase();
-    };
-
-    const formatMoney = (value) => {
-        if (
-            value === null ||
-            value === undefined ||
-            value === ""
-        ) {
-            return "Đang cập nhật";
-        }
-
-        const number = Number(value);
-
-        if (Number.isNaN(number)) {
-            return String(value);
-        }
-
-        if (number === 0) {
-            return "Miễn phí";
-        }
-
-        return `${number.toLocaleString(
-            "vi-VN"
-        )} đ`;
-    };
-
-    const formatDate = (value) => {
-        if (!value) {
-            return "—";
-        }
-
-        const date = new Date(value);
-
-        if (
-            Number.isNaN(date.getTime())
-        ) {
-            return String(value).replace(
-                "T",
-                " "
-            );
-        }
-
-        return date.toLocaleString(
-            "vi-VN",
-            {
-                hour: "2-digit",
-                minute: "2-digit",
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-            }
-        );
-    };
-
-    const getQrImage = (ticket) => {
-        const image =
-            ticket?.qrImage ||
-            ticket?.qrCodeImage ||
-            ticket?.qrImageUrl ||
-            ticket?.imageUrl;
-
-        if (!image) {
-            return "";
-        }
-
-        const imageValue = String(image);
-
-        if (
-            imageValue.startsWith(
-                "data:image"
-            )
-        ) {
-            return imageValue;
-        }
-
-        if (
-            imageValue.startsWith("http")
-        ) {
-            return imageValue;
-        }
-
-        if (
-            imageValue.startsWith(
-                "/uploads"
-            )
-        ) {
-            return `/api/ticket-service${imageValue}`;
-        }
-
-        if (imageValue.length > 100) {
-            return `data:image/png;base64,${imageValue}`;
-        }
-
-        return "";
-    };
-
-    const getStatusInfo = (status) => {
-        const value =
-            normalizeStatus(status);
-
-        if (
-            value === "VALID" ||
-            value === "ACTIVE" ||
-            value === "PAID"
-        ) {
-            return {
-                text: "VALID",
-                badgeClass:
-                    "bg-emerald-100 text-emerald-700",
-                rowClass:
-                    "border-l-4 border-l-emerald-500",
-                icon: CheckCircle2,
-            };
-        }
-
-        if (
-            value === "USED" ||
-            value === "CHECKED_IN"
-        ) {
-            return {
-                text: "USED",
-                badgeClass:
-                    "bg-blue-100 text-blue-700",
-                rowClass:
-                    "border-l-4 border-l-blue-500",
-                icon: ShieldCheck,
-            };
-        }
-
-        if (
-            value === "CANCELLED" ||
-            value === "EXPIRED" ||
-            value === "FAILED"
-        ) {
-            return {
-                text: value,
-                badgeClass:
-                    "bg-red-100 text-red-700",
-                rowClass:
-                    "border-l-4 border-l-red-500",
-                icon: XCircle,
-            };
-        }
-
-        return {
-            text: value || "UNKNOWN",
-            badgeClass:
-                "bg-slate-100 text-slate-700",
-            rowClass:
-                "border-l-4 border-l-slate-300",
-            icon: Ticket,
         };
-    };
 
-    const updateFilter = (
-        name,
-        value
-    ) => {
-        setFilters((previous) => ({
-            ...previous,
-            [name]: value,
-        }));
-    };
+    const loadTickets =
+        async () => {
+            try {
+                setLoading(true);
+                setError("");
 
-    const applyFilters = (event) => {
-        event.preventDefault();
+                const response =
+                    await axiosClient.get(
+                        "/ticket-service/tickets",
+                        {
+                            params: {
+                                page,
+                                size,
 
-        setAppliedFilters({
-            ...filters,
-        });
+                                keyword:
+                                    appliedFilters
+                                        .keyword
+                                        .trim() ||
+                                    undefined,
 
-        setPage(0);
-    };
+                                status:
+                                    appliedFilters
+                                        .status ||
+                                    undefined,
 
-    const clearFilters = () => {
-        setFilters({
-            ...DEFAULT_FILTERS,
-        });
+                                ticketType:
+                                    appliedFilters
+                                        .ticketType
+                                        .trim() ||
+                                    undefined,
 
-        setAppliedFilters({
-            ...DEFAULT_FILTERS,
-        });
+                                userId:
+                                    appliedFilters
+                                        .userId
+                                        ? Number(
+                                            appliedFilters
+                                                .userId
+                                        )
+                                        : undefined,
 
-        setPage(0);
-    };
+                                eventId:
+                                    appliedFilters
+                                        .eventId
+                                        ? Number(
+                                            appliedFilters
+                                                .eventId
+                                        )
+                                        : undefined,
 
-    const checkInTicket = async (
-        ticket
-    ) => {
-        const ticketId =
-            getTicketId(ticket);
+                                bookingId:
+                                    appliedFilters
+                                        .bookingId
+                                        ? Number(
+                                            appliedFilters
+                                                .bookingId
+                                        )
+                                        : undefined,
 
-        const accepted =
-            window.confirm(
-                `Xác nhận check-in vé ${ticket.ticketCode}?`
-            );
+                                sortBy:
+                                    appliedFilters
+                                        .sortBy,
 
-        if (!accepted) {
-            return;
-        }
+                                sortDirection:
+                                    appliedFilters
+                                        .sortDirection,
+                            },
+                        }
+                    );
 
-        try {
-            setActionId(ticketId);
-            setError("");
+                const pageData =
+                    normalizePage(
+                        response.data,
+                        size
+                    );
 
-            await axiosClient.put(
-                `/ticket-service/tickets/${ticketId}/use`
-            );
-
-            if (
-                selectedTicket &&
-                getTicketId(
-                    selectedTicket
-                ) === ticketId
-            ) {
-                setSelectedTicket(null);
-            }
-
-            await loadTickets();
-
-            window.alert(
-                "Check-in vé thành công."
-            );
-        } catch (requestError) {
-            console.error(requestError);
-
-            window.alert(
-                requestError?.response?.data
-                    ?.message ||
-                requestError?.response?.data
-                    ?.error ||
-                "Không thể check-in vé. Vé có thể đã được sử dụng hoặc bị hủy."
-            );
-        } finally {
-            setActionId(null);
-        }
-    };
-
-    const regenerateTicketCode = async (
-        ticket
-    ) => {
-        const ticketId =
-            getTicketId(ticket);
-
-        const accepted =
-            window.confirm(
-                "Tạo mã vé và QR mới cho vé này?"
-            );
-
-        if (!accepted) {
-            return;
-        }
-
-        try {
-            setActionId(ticketId);
-            setError("");
-
-            const response =
-                await axiosClient.put(
-                    `/ticket-service/tickets/${ticketId}/regenerate-code`
+                setTickets(
+                    pageData.content
                 );
 
+                setTotalElements(
+                    pageData
+                        .totalElements
+                );
+
+                setTotalPages(
+                    pageData.totalPages
+                );
+
+                if (
+                    pageData.totalPages >
+                    0 &&
+                    page >=
+                    pageData.totalPages
+                ) {
+                    setPage(
+                        pageData.totalPages -
+                        1
+                    );
+                }
+            } catch (
+            requestError
+            ) {
+                console.error(
+                    "Không tải được tickets:",
+                    requestError
+                );
+
+                setTickets([]);
+                setTotalElements(0);
+                setTotalPages(0);
+
+                setError(
+                    getErrorMessage(
+                        requestError,
+                        "Không tải được danh sách vé."
+                    )
+                );
+            } finally {
+                setLoading(false);
+            }
+        };
+
+    const reloadAll =
+        async () => {
+            await Promise.all([
+                loadReferenceData(),
+                loadTickets(),
+            ]);
+        };
+
+    const getTicketId =
+        (ticket) =>
+            ticket?.id ??
+            ticket?.ticketId;
+
+    const getEventName =
+        (eventId) =>
+            eventsById[
+                String(eventId)
+            ]?.name ||
+            `Event #${eventId}`;
+
+    const getUserName =
+        (userId) => {
+            const user =
+                usersById[
+                String(userId)
+                ];
+
+            return (
+                user?.fullName ||
+                user?.name ||
+                user?.username ||
+                user?.email ||
+                `User #${userId}`
+            );
+        };
+
+    const getSeatName =
+        (seatId) => {
+            const seat =
+                seatsById[
+                String(seatId)
+                ];
+
+            return (
+                seat?.seatNumber ||
+                seat?.name ||
+                seat?.code ||
+                `Ghế #${seatId}`
+            );
+        };
+
+    const getTicketType =
+        (ticket) => {
+            const seat =
+                seatsById[
+                String(
+                    ticket?.seatId
+                )
+                ];
+
+            return (
+                seat?.seatType ||
+                seat?.ticketType ||
+                ticket?.ticketType ||
+                "STANDARD"
+            );
+        };
+
+    const getBookingCode =
+        (bookingId) => {
+            const booking =
+                bookingsById[
+                String(
+                    bookingId
+                )
+                ];
+
+            return (
+                booking?.bookingCode ||
+                `Booking #${bookingId}`
+            );
+        };
+
+    const updateFilter =
+        (name, value) => {
+            setFilters(
+                (current) => ({
+                    ...current,
+                    [name]: value,
+                })
+            );
+        };
+
+    const validateFilters =
+        () => {
+            const numericFields = [
+                [
+                    "User ID",
+                    filters.userId,
+                ],
+
+                [
+                    "Event ID",
+                    filters.eventId,
+                ],
+
+                [
+                    "Booking ID",
+                    filters.bookingId,
+                ],
+            ];
+
+            for (
+                const [
+                    label,
+                    value,
+                ] of numericFields
+            ) {
+                if (
+                    value &&
+                    (
+                        !Number.isInteger(
+                            Number(value)
+                        ) ||
+                        Number(value) <= 0
+                    )
+                ) {
+                    setError(
+                        `${label} phải là số nguyên lớn hơn 0.`
+                    );
+
+                    return false;
+                }
+            }
+
+            return true;
+        };
+
+    const applyFilters =
+        (event) => {
+            event.preventDefault();
+
+            if (
+                !validateFilters()
+            ) {
+                return;
+            }
+
+            setError("");
+
+            setAppliedFilters({
+                ...filters,
+            });
+
+            setPage(0);
+        };
+
+    const clearFilters =
+        () => {
+            setFilters({
+                ...DEFAULT_FILTERS,
+            });
+
+            setAppliedFilters({
+                ...DEFAULT_FILTERS,
+            });
+
+            setPage(0);
+            setError("");
+        };
+
+    const updateSelectedTicket =
+        (updatedTicket) => {
             if (
                 selectedTicket &&
                 getTicketId(
                     selectedTicket
-                ) === ticketId
+                ) ===
+                getTicketId(
+                    updatedTicket
+                )
             ) {
                 setSelectedTicket(
-                    response.data
+                    updatedTicket
                 );
             }
+        };
 
-            await loadTickets();
+    const checkInTicket =
+        async (ticket) => {
+            const ticketId =
+                getTicketId(ticket);
 
-            window.alert(
-                "Đã tạo mã vé mới."
-            );
-        } catch (requestError) {
-            console.error(requestError);
-
-            window.alert(
-                requestError?.response?.data
-                    ?.message ||
-                requestError?.response?.data
-                    ?.error ||
-                "Không thể tạo lại mã vé."
-            );
-        } finally {
-            setActionId(null);
-        }
-    };
-
-    const deleteTicket = async (
-        ticket
-    ) => {
-        const ticketId =
-            getTicketId(ticket);
-
-        const accepted =
-            window.confirm(
-                `Bạn chắc chắn muốn xóa vé ${ticket.ticketCode}?`
-            );
-
-        if (!accepted) {
-            return;
-        }
-
-        try {
-            setActionId(ticketId);
-            setError("");
-
-            await axiosClient.delete(
-                `/ticket-service/tickets/${ticketId}`
-            );
+            const status =
+                normalizeStatus(
+                    ticket?.status
+                );
 
             if (
-                selectedTicket &&
-                getTicketId(
-                    selectedTicket
-                ) === ticketId
+                !VALID_STATUSES.includes(
+                    status
+                )
             ) {
-                setSelectedTicket(null);
+                window.alert(
+                    "Chỉ vé hợp lệ mới có thể check-in."
+                );
+
+                return;
             }
 
-            await loadTickets();
+            if (
+                !window.confirm(
+                    `Xác nhận check-in vé ${ticket?.ticketCode ||
+                    ticketId
+                    }?`
+                )
+            ) {
+                return;
+            }
 
-            window.alert(
-                "Đã xóa vé."
+            try {
+                setActionId(
+                    ticketId
+                );
+
+                setError("");
+
+                const response =
+                    await axiosClient.put(
+                        `/ticket-service/tickets/${ticketId}/use`
+                    );
+
+                if (
+                    response?.data
+                ) {
+                    updateSelectedTicket(
+                        response.data
+                    );
+                }
+
+                await loadTickets();
+
+                window.alert(
+                    "Check-in vé thành công."
+                );
+            } catch (
+            requestError
+            ) {
+                console.error(
+                    requestError
+                );
+
+                window.alert(
+                    getErrorMessage(
+                        requestError,
+                        "Không thể check-in vé."
+                    )
+                );
+            } finally {
+                setActionId(null);
+            }
+        };
+
+    const regenerateTicketCode =
+        async (ticket) => {
+            const ticketId =
+                getTicketId(ticket);
+
+            const status =
+                normalizeStatus(
+                    ticket?.status
+                );
+
+            if (
+                !VALID_STATUSES.includes(
+                    status
+                )
+            ) {
+                window.alert(
+                    "Chỉ vé hợp lệ mới được tạo lại mã QR."
+                );
+
+                return;
+            }
+
+            if (
+                !window.confirm(
+                    "Tạo mã vé và QR mới? Mã cũ sẽ không còn sử dụng được."
+                )
+            ) {
+                return;
+            }
+
+            try {
+                setActionId(
+                    ticketId
+                );
+
+                setError("");
+
+                const response =
+                    await axiosClient.put(
+                        `/ticket-service/tickets/${ticketId}/regenerate-code`
+                    );
+
+                if (
+                    response?.data
+                ) {
+                    updateSelectedTicket(
+                        response.data
+                    );
+                }
+
+                await loadTickets();
+
+                window.alert(
+                    "Đã tạo mã vé mới."
+                );
+            } catch (
+            requestError
+            ) {
+                console.error(
+                    requestError
+                );
+
+                window.alert(
+                    getErrorMessage(
+                        requestError,
+                        "Không thể tạo lại mã vé."
+                    )
+                );
+            } finally {
+                setActionId(null);
+            }
+        };
+
+    const deleteTicket =
+        async (ticket) => {
+            const ticketId =
+                getTicketId(ticket);
+
+            const status =
+                normalizeStatus(
+                    ticket?.status
+                );
+
+            if (
+                USED_STATUSES.includes(
+                    status
+                )
+            ) {
+                window.alert(
+                    "Không được xóa vé đã check-in."
+                );
+
+                return;
+            }
+
+            if (
+                !window.confirm(
+                    `Bạn chắc chắn muốn xóa vé ${ticket?.ticketCode ||
+                    ticketId
+                    }?`
+                )
+            ) {
+                return;
+            }
+
+            try {
+                setActionId(
+                    ticketId
+                );
+
+                setError("");
+
+                await axiosClient.delete(
+                    `/ticket-service/tickets/${ticketId}`
+                );
+
+                if (
+                    selectedTicket &&
+                    getTicketId(
+                        selectedTicket
+                    ) === ticketId
+                ) {
+                    setSelectedTicket(
+                        null
+                    );
+                }
+
+                if (
+                    tickets.length === 1 &&
+                    page > 0
+                ) {
+                    setPage(
+                        (current) =>
+                            current - 1
+                    );
+                } else {
+                    await loadTickets();
+                }
+
+                window.alert(
+                    "Đã xóa vé."
+                );
+            } catch (
+            requestError
+            ) {
+                console.error(
+                    requestError
+                );
+
+                window.alert(
+                    getErrorMessage(
+                        requestError,
+                        "Không thể xóa vé."
+                    )
+                );
+            } finally {
+                setActionId(null);
+            }
+        };
+
+    const pageNumbers =
+        useMemo(() => {
+            if (
+                totalPages <= 0
+            ) {
+                return [];
+            }
+
+            let start =
+                Math.max(
+                    0,
+                    page - 2
+                );
+
+            let end =
+                Math.min(
+                    totalPages,
+                    start + 5
+                );
+
+            if (
+                end - start < 5
+            ) {
+                start =
+                    Math.max(
+                        0,
+                        end - 5
+                    );
+            }
+
+            return Array.from(
+                {
+                    length:
+                        Math.max(
+                            0,
+                            end - start
+                        ),
+                },
+                (_, index) =>
+                    start + index
             );
-        } catch (requestError) {
-            console.error(requestError);
-
-            window.alert(
-                requestError?.response?.data
-                    ?.message ||
-                requestError?.response?.data
-                    ?.error ||
-                "Không thể xóa vé."
-            );
-        } finally {
-            setActionId(null);
-        }
-    };
-
-    const pageNumbers = useMemo(() => {
-        if (totalPages <= 0) {
-            return [];
-        }
-
-        let start = Math.max(
-            0,
-            page - 2
-        );
-
-        let end = Math.min(
+        }, [
+            page,
             totalPages,
-            start + 5
-        );
+        ]);
 
-        if (end - start < 5) {
-            start = Math.max(
-                0,
-                end - 5
-            );
-        }
+    const displayedStart =
+        totalElements === 0
+            ? 0
+            : page * size + 1;
 
-        return Array.from(
-            {
-                length: end - start,
-            },
-            (_, index) =>
-                start + index
+    const displayedEnd =
+        Math.min(
+            (page + 1) * size,
+            totalElements
         );
-    }, [page, totalPages]);
 
     return (
         <div className="min-h-screen bg-slate-100 p-4 md:p-6">
-            <section className="rounded-[28px] bg-white border border-slate-200 p-6 shadow-sm">
-                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+            <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
                     <div>
-                        <div className="inline-flex items-center gap-2 text-emerald-600 font-black">
-                            <Ticket size={20} />
+                        <div className="inline-flex items-center gap-2 font-black text-blue-600">
+                            <Ticket
+                                size={20}
+                            />
+
                             TICKET SERVICE
                         </div>
 
-                        <h1 className="text-3xl md:text-4xl font-black text-slate-950 mt-2">
+                        <h1 className="mt-2 text-3xl font-black text-slate-950 md:text-4xl">
                             Quản lý vé QR
                         </h1>
 
-                        <p className="text-slate-500 mt-2">
+                        <p className="mt-2 text-slate-500">
                             Tìm thấy{" "}
-                            <span className="font-black text-emerald-600">
-                                {totalElements}
-                            </span>{" "}
+                            <strong className="text-blue-600">
+                                {
+                                    totalElements
+                                }
+                            </strong>{" "}
                             vé phù hợp.
                         </p>
                     </div>
 
                     <button
                         type="button"
-                        onClick={reloadAll}
+                        onClick={
+                            reloadAll
+                        }
                         disabled={
                             loading ||
                             referenceLoading
                         }
-                        className="h-11 px-5 rounded-2xl bg-slate-950 text-white font-black hover:bg-black disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 font-black text-white hover:bg-black disabled:opacity-60"
                     >
                         <RefreshCw
                             size={17}
@@ -825,26 +1368,32 @@ function Tickets() {
                             }
                         />
 
-                        Reload
+                        Làm mới
                     </button>
                 </div>
             </section>
 
             <form
-                onSubmit={applyFilters}
-                className="mt-6 bg-white rounded-[28px] border border-slate-200 p-5 shadow-sm"
+                onSubmit={
+                    applyFilters
+                }
+                className="mt-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
             >
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <FilterInput
                         label="Tìm kiếm"
                         icon={
-                            <Search size={17} />
+                            <Search
+                                size={17}
+                            />
                         }
                         value={
                             filters.keyword
                         }
                         placeholder="Mã vé, trạng thái hoặc ID..."
-                        onChange={(value) =>
+                        onChange={(
+                            value
+                        ) =>
                             updateFilter(
                                 "keyword",
                                 value
@@ -857,7 +1406,9 @@ function Tickets() {
                         value={
                             filters.status
                         }
-                        onChange={(value) =>
+                        onChange={(
+                            value
+                        ) =>
                             updateFilter(
                                 "status",
                                 value
@@ -868,25 +1419,22 @@ function Tickets() {
                             Tất cả trạng thái
                         </option>
 
-                        <option value="VALID">
-                            VALID
-                        </option>
-
-                        <option value="USED">
-                            USED
-                        </option>
-
-                        <option value="CANCELLED">
-                            CANCELLED
-                        </option>
-
-                        <option value="EXPIRED">
-                            EXPIRED
-                        </option>
-
-                        <option value="FAILED">
-                            FAILED
-                        </option>
+                        {TICKET_STATUSES.map(
+                            (status) => (
+                                <option
+                                    key={
+                                        status
+                                    }
+                                    value={
+                                        status
+                                    }
+                                >
+                                    {
+                                        status
+                                    }
+                                </option>
+                            )
+                        )}
                     </FilterSelect>
 
                     <FilterInput
@@ -895,7 +1443,9 @@ function Tickets() {
                             filters.ticketType
                         }
                         placeholder="VIP, STANDARD..."
-                        onChange={(value) =>
+                        onChange={(
+                            value
+                        ) =>
                             updateFilter(
                                 "ticketType",
                                 value
@@ -910,7 +1460,9 @@ function Tickets() {
                             filters.userId
                         }
                         placeholder="Ví dụ: 1"
-                        onChange={(value) =>
+                        onChange={(
+                            value
+                        ) =>
                             updateFilter(
                                 "userId",
                                 value
@@ -925,7 +1477,9 @@ function Tickets() {
                             filters.eventId
                         }
                         placeholder="Ví dụ: 3"
-                        onChange={(value) =>
+                        onChange={(
+                            value
+                        ) =>
                             updateFilter(
                                 "eventId",
                                 value
@@ -940,7 +1494,9 @@ function Tickets() {
                             filters.bookingId
                         }
                         placeholder="Ví dụ: 1"
-                        onChange={(value) =>
+                        onChange={(
+                            value
+                        ) =>
                             updateFilter(
                                 "bookingId",
                                 value
@@ -953,7 +1509,9 @@ function Tickets() {
                         value={
                             filters.sortBy
                         }
-                        onChange={(value) =>
+                        onChange={(
+                            value
+                        ) =>
                             updateFilter(
                                 "sortBy",
                                 value
@@ -991,6 +1549,18 @@ function Tickets() {
                         <option value="eventId">
                             Event ID
                         </option>
+
+                        <option value="seatId">
+                            Seat ID
+                        </option>
+
+                        <option value="ticketType">
+                            Loại vé
+                        </option>
+
+                        <option value="usedAt">
+                            Ngày check-in
+                        </option>
                     </FilterSelect>
 
                     <FilterSelect
@@ -998,7 +1568,9 @@ function Tickets() {
                         value={
                             filters.sortDirection
                         }
-                        onChange={(value) =>
+                        onChange={(
+                            value
+                        ) =>
                             updateFilter(
                                 "sortDirection",
                                 value
@@ -1015,10 +1587,12 @@ function Tickets() {
                     </FilterSelect>
                 </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-5">
+                <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <select
                         value={size}
-                        onChange={(event) => {
+                        onChange={(
+                            event
+                        ) => {
                             setSize(
                                 Number(
                                     event.target
@@ -1028,7 +1602,7 @@ function Tickets() {
 
                             setPage(0);
                         }}
-                        className="h-11 px-4 rounded-xl border border-slate-200 bg-white outline-none"
+                        className="h-11 rounded-xl border border-slate-200 bg-white px-4 outline-none focus:border-blue-500"
                     >
                         <option value={5}>
                             5 / trang
@@ -1053,7 +1627,7 @@ function Tickets() {
                             onClick={
                                 clearFilters
                             }
-                            className="h-11 px-5 rounded-xl bg-slate-100 text-slate-700 font-black hover:bg-slate-200 inline-flex items-center gap-2"
+                            className="inline-flex h-11 items-center gap-2 rounded-xl bg-slate-100 px-5 font-black text-slate-700 hover:bg-slate-200"
                         >
                             <RotateCcw
                                 size={17}
@@ -1064,9 +1638,12 @@ function Tickets() {
 
                         <button
                             type="submit"
-                            className="h-11 px-6 rounded-xl bg-emerald-500 text-white font-black hover:bg-emerald-600 inline-flex items-center gap-2"
+                            className="inline-flex h-11 items-center gap-2 rounded-xl bg-blue-600 px-6 font-black text-white hover:bg-blue-700"
                         >
-                            <Search size={17} />
+                            <Search
+                                size={17}
+                            />
+
                             Áp dụng
                         </button>
                     </div>
@@ -1074,10 +1651,10 @@ function Tickets() {
             </form>
 
             {error && (
-                <div className="mt-6 rounded-2xl bg-red-50 border border-red-200 p-4 text-red-700 flex items-start gap-3">
+                <div className="mt-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
                     <AlertCircle
                         size={20}
-                        className="shrink-0 mt-0.5"
+                        className="mt-0.5 shrink-0"
                     />
 
                     <div className="font-semibold">
@@ -1086,389 +1663,157 @@ function Tickets() {
                 </div>
             )}
 
-            <section className="mt-6 bg-white rounded-[28px] border border-slate-200 overflow-hidden shadow-sm">
+            <section className="mt-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                        Hiển thị{" "}
+                        <strong className="text-slate-900">
+                            {
+                                displayedStart
+                            }
+                            -
+                            {
+                                displayedEnd
+                            }
+                        </strong>{" "}
+                        trong tổng số{" "}
+                        <strong className="text-slate-900">
+                            {
+                                totalElements
+                            }
+                        </strong>{" "}
+                        vé
+                    </span>
+
+                    {referenceLoading && (
+                        <span className="inline-flex items-center gap-2">
+                            <Loader2
+                                size={15}
+                                className="animate-spin"
+                            />
+
+                            Đang tải dữ liệu liên quan...
+                        </span>
+                    )}
+                </div>
+
                 {loading ? (
                     <div className="p-14 text-center text-slate-500">
                         <Loader2
                             size={36}
-                            className="animate-spin mx-auto"
+                            className="mx-auto animate-spin"
                         />
 
                         <div className="mt-4 font-semibold">
-                            Đang tải danh sách
-                            vé...
+                            Đang tải danh sách vé...
                         </div>
                     </div>
-                ) : tickets.length === 0 ? (
+                ) : tickets.length ===
+                    0 ? (
                     <div className="p-14 text-center text-slate-500">
                         <Ticket
                             size={55}
                             className="mx-auto text-slate-300"
                         />
 
-                        <h2 className="text-xl font-black text-slate-700 mt-4">
+                        <h2 className="mt-4 text-xl font-black text-slate-700">
                             Không có vé phù hợp
                         </h2>
 
                         <p className="mt-2">
-                            Thử xóa hoặc thay đổi
-                            bộ lọc.
+                            Thử xóa hoặc thay đổi bộ lọc.
                         </p>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full min-w-362.5">
-                            <thead className="bg-slate-950 text-white">
-                                <tr>
-                                    <TableHeader>
-                                        ID
-                                    </TableHeader>
+                    <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
+                        {tickets.map(
+                            (ticket) => {
+                                const ticketId =
+                                    getTicketId(
+                                        ticket
+                                    );
 
-                                    <TableHeader>
-                                        QR
-                                    </TableHeader>
+                                const status =
+                                    normalizeStatus(
+                                        ticket.status
+                                    );
 
-                                    <TableHeader>
-                                        Mã vé
-                                    </TableHeader>
+                                const statusInfo =
+                                    getStatusInfo(
+                                        status
+                                    );
 
-                                    <TableHeader>
-                                        Sự kiện
-                                    </TableHeader>
+                                const qrImage =
+                                    getQrImage(
+                                        ticket
+                                    );
 
-                                    <TableHeader>
-                                        Ghế
-                                    </TableHeader>
+                                const processing =
+                                    actionId ===
+                                    ticketId;
 
-                                    <TableHeader>
-                                        Booking
-                                    </TableHeader>
-
-                                    <TableHeader>
-                                        Người dùng
-                                    </TableHeader>
-
-                                    <TableHeader>
-                                        Loại vé
-                                    </TableHeader>
-
-                                    <TableHeader>
-                                        Giá
-                                    </TableHeader>
-
-                                    <TableHeader>
-                                        Trạng thái
-                                    </TableHeader>
-
-                                    <TableHeader>
-                                        Ngày phát hành
-                                    </TableHeader>
-
-                                    <TableHeader center>
-                                        Thao tác
-                                    </TableHeader>
-                                </tr>
-                            </thead>
-
-                            <tbody>
-                                {tickets.map(
-                                    (ticket) => {
-                                        const ticketId =
-                                            getTicketId(
+                                return (
+                                    <TicketCard
+                                        key={
+                                            ticketId
+                                        }
+                                        ticket={
+                                            ticket
+                                        }
+                                        eventName={getEventName(
+                                            ticket.eventId
+                                        )}
+                                        seatName={getSeatName(
+                                            ticket.seatId
+                                        )}
+                                        ticketType={getTicketType(
+                                            ticket
+                                        )}
+                                        userName={getUserName(
+                                            ticket.userId
+                                        )}
+                                        bookingCode={getBookingCode(
+                                            ticket.bookingId
+                                        )}
+                                        qrImage={
+                                            qrImage
+                                        }
+                                        statusInfo={
+                                            statusInfo
+                                        }
+                                        processing={
+                                            processing
+                                        }
+                                        onView={() =>
+                                            setSelectedTicket(
                                                 ticket
-                                            );
-
-                                        const status =
-                                            normalizeStatus(
-                                                ticket.status
-                                            );
-
-                                        const statusInfo =
-                                            getStatusInfo(
-                                                status
-                                            );
-
-                                        const StatusIcon =
-                                            statusInfo.icon;
-
-                                        const qrImage =
-                                            getQrImage(
+                                            )
+                                        }
+                                        onCheckIn={() =>
+                                            checkInTicket(
                                                 ticket
-                                            );
-
-                                        const isProcessing =
-                                            actionId ===
-                                            ticketId;
-
-                                        return (
-                                            <tr
-                                                key={
-                                                    ticketId
-                                                }
-                                                className={`border-b border-slate-100 hover:bg-slate-50 transition ${statusInfo.rowClass}`}
-                                            >
-                                                <td className="p-4 font-black text-slate-900">
-                                                    {
-                                                        ticketId
-                                                    }
-                                                </td>
-
-                                                <td className="p-4">
-                                                    {qrImage ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                setSelectedTicket(
-                                                                    ticket
-                                                                )
-                                                            }
-                                                            className="group"
-                                                        >
-                                                            <img
-                                                                src={
-                                                                    qrImage
-                                                                }
-                                                                alt={
-                                                                    ticket.ticketCode ||
-                                                                    "QR Ticket"
-                                                                }
-                                                                className="h-16 w-16 rounded-xl border border-slate-200 object-contain group-hover:scale-105 transition bg-white"
-                                                            />
-                                                        </button>
-                                                    ) : (
-                                                        <div className="h-16 w-16 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400">
-                                                            <QrCode
-                                                                size={
-                                                                    25
-                                                                }
-                                                            />
-                                                        </div>
-                                                    )}
-                                                </td>
-
-                                                <td className="p-4">
-                                                    <div className="font-black text-emerald-600 max-w-55 break-all">
-                                                        {ticket.ticketCode ||
-                                                            `TICKET-${ticketId}`}
-                                                    </div>
-
-                                                    <div className="text-xs text-slate-500 mt-1">
-                                                        Ticket
-                                                        ID:{" "}
-                                                        {
-                                                            ticketId
-                                                        }
-                                                    </div>
-                                                </td>
-
-                                                <td className="p-4">
-                                                    <div className="font-bold text-slate-900 max-w-55">
-                                                        {getEventName(
-                                                            ticket.eventId
-                                                        )}
-                                                    </div>
-
-                                                    <div className="text-xs text-slate-500 mt-1">
-                                                        Event
-                                                        ID:{" "}
-                                                        {
-                                                            ticket.eventId
-                                                        }
-                                                    </div>
-                                                </td>
-
-                                                <td className="p-4">
-                                                    <div className="font-black text-slate-900">
-                                                        {getSeatName(
-                                                            ticket.seatId
-                                                        )}
-                                                    </div>
-
-                                                    <div className="text-xs text-slate-500 mt-1">
-                                                        Seat
-                                                        ID:{" "}
-                                                        {
-                                                            ticket.seatId
-                                                        }
-                                                    </div>
-                                                </td>
-
-                                                <td className="p-4">
-                                                    <div className="font-semibold text-slate-900">
-                                                        {getBookingCode(
-                                                            ticket.bookingId
-                                                        )}
-                                                    </div>
-
-                                                    <div className="text-xs text-slate-500 mt-1">
-                                                        Booking
-                                                        ID:{" "}
-                                                        {
-                                                            ticket.bookingId
-                                                        }
-                                                    </div>
-                                                </td>
-
-                                                <td className="p-4">
-                                                    <div className="font-semibold text-slate-900">
-                                                        {getUserName(
-                                                            ticket.userId
-                                                        )}
-                                                    </div>
-
-                                                    <div className="text-xs text-slate-500 mt-1">
-                                                        User
-                                                        ID:{" "}
-                                                        {
-                                                            ticket.userId
-                                                        }
-                                                    </div>
-                                                </td>
-
-                                                <td className="p-4">
-                                                    <span
-                                                        className={`inline-flex px-3 py-1 rounded-full text-xs font-black ${getSeatType(
-                                                            ticket
-                                                        ) ===
-                                                            "VIP"
-                                                            ? "bg-purple-100 text-purple-700"
-                                                            : "bg-blue-100 text-blue-700"
-                                                            }`}
-                                                    >
-                                                        {getSeatType(
-                                                            ticket
-                                                        )}
-                                                    </span>
-                                                </td>
-
-                                                <td className="p-4 font-black text-emerald-600 whitespace-nowrap">
-                                                    {formatMoney(
-                                                        ticket.price
-                                                    )}
-                                                </td>
-
-                                                <td className="p-4">
-                                                    <span
-                                                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black ${statusInfo.badgeClass}`}
-                                                    >
-                                                        <StatusIcon
-                                                            size={
-                                                                14
-                                                            }
-                                                        />
-
-                                                        {
-                                                            statusInfo.text
-                                                        }
-                                                    </span>
-                                                </td>
-
-                                                <td className="p-4 text-sm text-slate-600 whitespace-nowrap">
-                                                    {formatDate(
-                                                        ticket.issuedAt
-                                                    )}
-                                                </td>
-
-                                                <td className="p-4">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <ActionButton
-                                                            title="Xem vé QR"
-                                                            onClick={() =>
-                                                                setSelectedTicket(
-                                                                    ticket
-                                                                )
-                                                            }
-                                                            className="bg-slate-100 text-slate-700 hover:bg-slate-200"
-                                                        >
-                                                            <Eye
-                                                                size={
-                                                                    16
-                                                                }
-                                                            />
-                                                        </ActionButton>
-
-                                                        {status ===
-                                                            "VALID" && (
-                                                                <ActionButton
-                                                                    title="Check-in vé"
-                                                                    onClick={() =>
-                                                                        checkInTicket(
-                                                                            ticket
-                                                                        )
-                                                                    }
-                                                                    disabled={
-                                                                        isProcessing
-                                                                    }
-                                                                    className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                                                                >
-                                                                    {isProcessing ? (
-                                                                        <Loader2
-                                                                            size={
-                                                                                16
-                                                                            }
-                                                                            className="animate-spin"
-                                                                        />
-                                                                    ) : (
-                                                                        <ShieldCheck
-                                                                            size={
-                                                                                16
-                                                                            }
-                                                                        />
-                                                                    )}
-                                                                </ActionButton>
-                                                            )}
-
-                                                        <ActionButton
-                                                            title="Tạo lại mã vé và QR"
-                                                            onClick={() =>
-                                                                regenerateTicketCode(
-                                                                    ticket
-                                                                )
-                                                            }
-                                                            disabled={
-                                                                isProcessing
-                                                            }
-                                                            className="bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                                        >
-                                                            <QrCode
-                                                                size={
-                                                                    16
-                                                                }
-                                                            />
-                                                        </ActionButton>
-
-                                                        <ActionButton
-                                                            title="Xóa vé"
-                                                            onClick={() =>
-                                                                deleteTicket(
-                                                                    ticket
-                                                                )
-                                                            }
-                                                            disabled={
-                                                                isProcessing
-                                                            }
-                                                            className="bg-red-100 text-red-700 hover:bg-red-200"
-                                                        >
-                                                            <Trash2
-                                                                size={
-                                                                    16
-                                                                }
-                                                            />
-                                                        </ActionButton>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    }
-                                )}
-                            </tbody>
-                        </table>
+                                            )
+                                        }
+                                        onRegenerate={() =>
+                                            regenerateTicketCode(
+                                                ticket
+                                            )
+                                        }
+                                        onDelete={() =>
+                                            deleteTicket(
+                                                ticket
+                                            )
+                                        }
+                                    />
+                                );
+                            }
+                        )}
                     </div>
                 )}
             </section>
 
-            {totalPages > 0 && (
-                <div className="mt-7 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            {totalPages > 1 && (
+                <div className="mt-7 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="text-sm text-slate-500">
                         Trang{" "}
                         <span className="font-black text-slate-900">
@@ -1476,29 +1821,40 @@ function Tickets() {
                         </span>{" "}
                         /{" "}
                         <span className="font-black text-slate-900">
-                            {totalPages}
+                            {
+                                totalPages
+                            }
                         </span>
                     </div>
 
-                    <div className="flex items-center justify-center gap-2">
-                        <button
-                            type="button"
-                            disabled={page === 0}
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                        <PageButton
+                            disabled={
+                                page === 0 ||
+                                loading
+                            }
                             onClick={() =>
                                 setPage(
-                                    (previous) =>
-                                        previous - 1
+                                    (
+                                        current
+                                    ) =>
+                                        Math.max(
+                                            0,
+                                            current -
+                                            1
+                                        )
                                 )
                             }
-                            className="h-10 w-10 rounded-full bg-white border border-slate-200 flex items-center justify-center disabled:opacity-40"
                         >
                             <ChevronLeft
                                 size={18}
                             />
-                        </button>
+                        </PageButton>
 
                         {pageNumbers.map(
-                            (pageNumber) => (
+                            (
+                                pageNumber
+                            ) => (
                                 <button
                                     key={
                                         pageNumber
@@ -1509,10 +1865,10 @@ function Tickets() {
                                             pageNumber
                                         )
                                     }
-                                    className={`h-10 min-w-10 px-3 rounded-full font-black border ${pageNumber ===
+                                    className={`h-10 min-w-10 rounded-full border px-3 font-black transition ${pageNumber ===
                                         page
-                                        ? "bg-emerald-500 text-white border-emerald-500"
-                                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                                        ? "border-blue-600 bg-blue-600 text-white"
+                                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                                         }`}
                                 >
                                     {pageNumber +
@@ -1521,38 +1877,43 @@ function Tickets() {
                             )
                         )}
 
-                        <button
-                            type="button"
+                        <PageButton
                             disabled={
                                 page >=
-                                totalPages - 1
+                                totalPages -
+                                1 ||
+                                loading
                             }
                             onClick={() =>
                                 setPage(
-                                    (previous) =>
-                                        previous + 1
+                                    (
+                                        current
+                                    ) =>
+                                        current +
+                                        1
                                 )
                             }
-                            className="h-10 w-10 rounded-full bg-white border border-slate-200 flex items-center justify-center disabled:opacity-40"
                         >
                             <ChevronRight
                                 size={18}
                             />
-                        </button>
+                        </PageButton>
                     </div>
                 </div>
             )}
 
             {selectedTicket && (
                 <TicketModal
-                    ticket={selectedTicket}
+                    ticket={
+                        selectedTicket
+                    }
                     eventName={getEventName(
                         selectedTicket.eventId
                     )}
                     seatName={getSeatName(
                         selectedTicket.seatId
                     )}
-                    seatType={getSeatType(
+                    ticketType={getTicketType(
                         selectedTicket
                     )}
                     bookingCode={getBookingCode(
@@ -1561,16 +1922,16 @@ function Tickets() {
                     userName={getUserName(
                         selectedTicket.userId
                     )}
-                    qrImage={getQrImage(
-                        selectedTicket
-                    )}
-                    statusInfo={getStatusInfo(
-                        selectedTicket.status
-                    )}
-                    formatMoney={formatMoney}
-                    formatDate={formatDate}
+                    processing={
+                        actionId ===
+                        getTicketId(
+                            selectedTicket
+                        )
+                    }
                     onClose={() =>
-                        setSelectedTicket(null)
+                        setSelectedTicket(
+                            null
+                        )
                     }
                     onCheckIn={() =>
                         checkInTicket(
@@ -1582,37 +1943,285 @@ function Tickets() {
                             selectedTicket
                         )
                     }
-                    processing={
-                        actionId ===
-                        getTicketId(
-                            selectedTicket
-                        )
-                    }
                 />
             )}
         </div>
     );
 }
 
-function TableHeader({
-    children,
-    center = false,
+function TicketCard({
+    ticket,
+    eventName,
+    seatName,
+    ticketType,
+    userName,
+    bookingCode,
+    qrImage,
+    statusInfo,
+    processing,
+    onView,
+    onCheckIn,
+    onRegenerate,
+    onDelete,
 }) {
+    const StatusIcon =
+        statusInfo.icon;
+
+    const status =
+        normalizeStatus(
+            ticket.status
+        );
+
+    const canUse =
+        VALID_STATUSES.includes(
+            status
+        );
+
+    const canDelete =
+        !USED_STATUSES.includes(
+            status
+        );
+
     return (
-        <th
-            className={`p-4 text-sm font-black whitespace-nowrap ${center
-                ? "text-center"
-                : "text-left"
-                }`}
+        <article
+            className={`overflow-hidden rounded-3xl border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg ${statusInfo.borderClass}`}
         >
-            {children}
-        </th>
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-5">
+                <div className="flex min-w-0 items-center gap-4">
+                    {qrImage ? (
+                        <button
+                            type="button"
+                            onClick={
+                                onView
+                            }
+                            className="shrink-0 rounded-2xl transition hover:scale-105"
+                        >
+                            <img
+                                src={
+                                    qrImage
+                                }
+                                alt={
+                                    ticket.ticketCode ||
+                                    "QR Ticket"
+                                }
+                                className="h-20 w-20 rounded-2xl border border-slate-200 bg-white object-contain"
+                            />
+                        </button>
+                    ) : (
+                        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                            <QrCode
+                                size={34}
+                            />
+                        </div>
+                    )}
+
+                    <div className="min-w-0">
+                        <div className="text-xs font-black uppercase tracking-wider text-slate-400">
+                            Mã vé
+                        </div>
+
+                        <div
+                            title={
+                                ticket.ticketCode
+                            }
+                            className="mt-1 max-w-[230px] truncate text-base font-black text-emerald-600"
+                        >
+                            {ticket.ticketCode ||
+                                `TICKET-${ticket.id}`}
+                        </div>
+
+                        <div className="mt-2 text-xs font-semibold text-slate-500">
+                            Ticket ID:{" "}
+                            {ticket.id ??
+                                ticket.ticketId}
+                        </div>
+                    </div>
+                </div>
+
+                <span
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black ${statusInfo.className}`}
+                >
+                    <StatusIcon
+                        size={14}
+                    />
+
+                    {
+                        statusInfo.text
+                    }
+                </span>
+            </div>
+
+            <div className="space-y-4 p-5">
+                <div>
+                    <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+                        Sự kiện
+                    </div>
+
+                    <div className="mt-1 line-clamp-2 text-lg font-black text-slate-900">
+                        {eventName}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <TicketInfo
+                        label="Ghế"
+                        value={
+                            seatName
+                        }
+                    />
+
+                    <TicketInfo
+                        label="Loại vé"
+                        value={
+                            ticketType
+                        }
+                    />
+
+                    <TicketInfo
+                        label="Người dùng"
+                        value={
+                            userName
+                        }
+                    />
+
+                    <TicketInfo
+                        label="Booking"
+                        value={
+                            bookingCode
+                        }
+                    />
+                </div>
+
+                <div className="flex flex-col gap-4 border-t border-slate-100 pt-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+                            Giá vé
+                        </div>
+
+                        <div className="mt-1 text-xl font-black text-emerald-600">
+                            {formatMoney(
+                                ticket.price
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="sm:text-right">
+                        <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+                            Ngày phát hành
+                        </div>
+
+                        <div className="mt-1 text-sm font-bold text-slate-700">
+                            {formatDateTime(
+                                ticket.issuedAt
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 border-t border-slate-100 bg-slate-50 p-4 sm:grid-cols-4">
+                <TicketAction
+                    onClick={
+                        onView
+                    }
+                    className="bg-slate-700 text-white hover:bg-slate-800"
+                >
+                    <Eye
+                        size={16}
+                    />
+
+                    Xem
+                </TicketAction>
+
+                {canUse && (
+                    <TicketAction
+                        onClick={
+                            onCheckIn
+                        }
+                        disabled={
+                            processing
+                        }
+                        className="bg-emerald-600 text-white hover:bg-emerald-700"
+                    >
+                        {processing ? (
+                            <Loader2
+                                size={16}
+                                className="animate-spin"
+                            />
+                        ) : (
+                            <ShieldCheck
+                                size={16}
+                            />
+                        )}
+
+                        Check-in
+                    </TicketAction>
+                )}
+
+                {canUse && (
+                    <TicketAction
+                        onClick={
+                            onRegenerate
+                        }
+                        disabled={
+                            processing
+                        }
+                        className="bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                        <QrCode
+                            size={16}
+                        />
+
+                        QR mới
+                    </TicketAction>
+                )}
+
+                {canDelete && (
+                    <TicketAction
+                        onClick={
+                            onDelete
+                        }
+                        disabled={
+                            processing
+                        }
+                        className="bg-red-600 text-white hover:bg-red-700"
+                    >
+                        <Trash2
+                            size={16}
+                        />
+
+                        Xóa
+                    </TicketAction>
+                )}
+            </div>
+        </article>
     );
 }
 
-function ActionButton({
+function TicketInfo({
+    label,
+    value,
+}) {
+    return (
+        <div className="min-w-0 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+            <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+                {label}
+            </div>
+
+            <div
+                title={String(
+                    value || ""
+                )}
+                className="mt-1 truncate text-sm font-bold text-slate-800"
+            >
+                {value || "—"}
+            </div>
+        </div>
+    );
+}
+
+function TicketAction({
     children,
-    title,
     onClick,
     disabled = false,
     className = "",
@@ -1620,82 +2229,16 @@ function ActionButton({
     return (
         <button
             type="button"
-            title={title}
-            onClick={onClick}
-            disabled={disabled}
-            className={`h-9 w-9 rounded-xl flex items-center justify-center transition disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
+            onClick={
+                onClick
+            }
+            disabled={
+                disabled
+            }
+            className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
         >
             {children}
         </button>
-    );
-}
-
-function FilterInput({
-    label,
-    value,
-    onChange,
-    placeholder = "",
-    type = "text",
-    icon = null,
-}) {
-    return (
-        <label className="block">
-            <span className="block text-xs font-black text-slate-500 mb-2">
-                {label}
-            </span>
-
-            <div className="h-11 px-4 rounded-xl border border-slate-200 bg-white flex items-center gap-2 focus-within:border-emerald-400 transition">
-                {icon && (
-                    <span className="text-slate-400">
-                        {icon}
-                    </span>
-                )}
-
-                <input
-                    type={type}
-                    value={value}
-                    placeholder={placeholder}
-                    onChange={(event) =>
-                        onChange(
-                            event.target.value
-                        )
-                    }
-                    min={
-                        type === "number"
-                            ? 1
-                            : undefined
-                    }
-                    className="flex-1 outline-none min-w-0 bg-transparent text-slate-900"
-                />
-            </div>
-        </label>
-    );
-}
-
-function FilterSelect({
-    label,
-    value,
-    onChange,
-    children,
-}) {
-    return (
-        <label className="block">
-            <span className="block text-xs font-black text-slate-500 mb-2">
-                {label}
-            </span>
-
-            <select
-                value={value}
-                onChange={(event) =>
-                    onChange(
-                        event.target.value
-                    )
-                }
-                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white outline-none focus:border-emerald-400 text-slate-900"
-            >
-                {children}
-            </select>
-        </label>
     );
 }
 
@@ -1703,139 +2246,171 @@ function TicketModal({
     ticket,
     eventName,
     seatName,
-    seatType,
+    ticketType,
     bookingCode,
     userName,
-    qrImage,
-    statusInfo,
-    formatMoney,
-    formatDate,
+    processing,
     onClose,
     onCheckIn,
     onRegenerate,
-    processing,
 }) {
+    const status =
+        normalizeStatus(
+            ticket?.status
+        );
+
+    const statusInfo =
+        getStatusInfo(status);
+
     const StatusIcon =
         statusInfo.icon;
 
-    const status =
-        String(ticket?.status || "")
-            .trim()
-            .toUpperCase();
+    const qrImage =
+        getQrImage(ticket);
+
+    const canUse =
+        VALID_STATUSES.includes(
+            status
+        );
 
     return (
-        <div className="fixed inset-0 z-50 bg-black/60 p-4 flex items-center justify-center">
-            <div className="relative bg-white rounded-[30px] w-full max-w-xl max-h-[95vh] overflow-y-auto p-6 md:p-7 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="relative max-h-[95vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
                 <button
                     type="button"
-                    onClick={onClose}
-                    className="absolute right-4 top-4 h-10 w-10 rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center"
+                    onClick={
+                        onClose
+                    }
+                    className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200"
                 >
-                    <X size={19} />
+                    <X
+                        size={19}
+                    />
                 </button>
 
-                <div>
-                    <div className="inline-flex items-center gap-2 text-emerald-600 font-black">
-                        <QrCode size={18} />
+                <div className="pr-12">
+                    <div className="text-sm font-black text-blue-600">
                         CHI TIẾT VÉ QR
                     </div>
 
-                    <h2 className="text-2xl font-black text-slate-950 mt-2 break-all pr-12">
-                        {ticket.ticketCode}
+                    <h2 className="mt-2 break-all text-2xl font-black text-slate-950">
+                        {ticket.ticketCode ||
+                            `TICKET-${ticket.id}`}
                     </h2>
 
-                    <div
-                        className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-black mt-3 ${statusInfo.badgeClass}`}
+                    <span
+                        className={`mt-3 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-black ${statusInfo.className}`}
                     >
-                        <StatusIcon size={14} />
-                        {statusInfo.text}
-                    </div>
+                        <StatusIcon
+                            size={14}
+                        />
+
+                        {
+                            statusInfo.text
+                        }
+                    </span>
                 </div>
 
-                <div className="mt-6 rounded-[28px] bg-slate-100 p-5 flex justify-center">
+                <div className="mt-6 flex justify-center rounded-3xl bg-slate-100 p-5">
                     {qrImage ? (
                         <img
-                            src={qrImage}
+                            src={
+                                qrImage
+                            }
                             alt={
                                 ticket.ticketCode ||
                                 "QR Ticket"
                             }
-                            className="w-64 h-64 object-contain rounded-2xl bg-white"
+                            className="h-64 w-64 rounded-2xl bg-white object-contain"
                         />
                     ) : (
-                        <div className="w-64 h-64 rounded-2xl bg-white flex items-center justify-center text-slate-300">
-                            <QrCode size={150} />
+                        <div className="flex h-64 w-64 items-center justify-center rounded-2xl bg-white text-slate-300">
+                            <QrCode
+                                size={140}
+                            />
                         </div>
                     )}
                 </div>
 
-                <div className="mt-6 rounded-2xl border border-slate-200 divide-y divide-slate-100">
+                <div className="mt-6 divide-y divide-slate-100 rounded-2xl border border-slate-200">
                     <ModalRow
                         label="Sự kiện"
-                        value={eventName}
+                        value={
+                            eventName
+                        }
                     />
 
                     <ModalRow
-                        label="Ghế / Loại vé"
-                        value={`${seatName} · ${seatType}`}
+                        label="Ghế / loại vé"
+                        value={`${seatName} · ${ticketType}`}
                     />
 
                     <ModalRow
                         label="Booking"
-                        value={bookingCode}
+                        value={
+                            bookingCode
+                        }
                     />
 
                     <ModalRow
                         label="Người dùng"
-                        value={userName}
+                        value={
+                            userName
+                        }
                     />
 
                     <ModalRow
-                        label="Giá vé"
+                        label="Giá"
                         value={formatMoney(
                             ticket.price
                         )}
-                        valueClass="text-emerald-600"
                     />
 
                     <ModalRow
                         label="Ngày phát hành"
-                        value={formatDate(
+                        value={formatDateTime(
                             ticket.issuedAt
                         )}
                     />
 
                     <ModalRow
                         label="Ngày sử dụng"
-                        value={formatDate(
+                        value={formatDateTime(
                             ticket.usedAt
                         )}
                     />
                 </div>
 
                 <div className="mt-6 flex flex-wrap justify-end gap-3">
-                    <button
-                        type="button"
-                        onClick={
-                            onRegenerate
-                        }
-                        disabled={processing}
-                        className="h-11 px-5 rounded-xl bg-blue-100 text-blue-700 font-black hover:bg-blue-200 disabled:opacity-50 inline-flex items-center gap-2"
-                    >
-                        <QrCode size={17} />
-                        Tạo mã mới
-                    </button>
-
-                    {status === "VALID" && (
+                    {canUse && (
                         <button
                             type="button"
-                            onClick={
-                                onCheckIn
-                            }
                             disabled={
                                 processing
                             }
-                            className="h-11 px-5 rounded-xl bg-emerald-500 text-white font-black hover:bg-emerald-600 disabled:opacity-50 inline-flex items-center gap-2"
+                            onClick={
+                                onRegenerate
+                            }
+                            className="inline-flex h-11 items-center gap-2 rounded-xl bg-blue-100 px-5 font-bold text-blue-700 hover:bg-blue-200 disabled:opacity-50"
+                        >
+                            <QrCode
+                                size={17}
+                            />
+
+                            Tạo QR mới
+                        </button>
+                    )}
+
+                    {canUse && (
+                        <button
+                            type="button"
+                            disabled={
+                                processing
+                            }
+                            onClick={
+                                onCheckIn
+                            }
+                            className="inline-flex h-11 items-center gap-2 rounded-xl bg-emerald-600 px-5 font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
                         >
                             {processing ? (
                                 <Loader2
@@ -1854,8 +2429,10 @@ function TicketModal({
 
                     <button
                         type="button"
-                        onClick={onClose}
-                        className="h-11 px-5 rounded-xl bg-slate-950 text-white font-black hover:bg-black"
+                        onClick={
+                            onClose
+                        }
+                        className="h-11 rounded-xl bg-slate-950 px-5 font-bold text-white hover:bg-black"
                     >
                         Đóng
                     </button>
@@ -1868,20 +2445,119 @@ function TicketModal({
 function ModalRow({
     label,
     value,
-    valueClass = "text-slate-900",
 }) {
     return (
-        <div className="p-4 flex items-start justify-between gap-5">
+        <div className="flex items-start justify-between gap-5 p-4">
             <span className="text-sm text-slate-500">
                 {label}
             </span>
 
-            <span
-                className={`text-sm font-black text-right break-all ${valueClass}`}
-            >
-                {value || "—"}
+            <span className="break-all text-right text-sm font-bold text-slate-900">
+                {value ||
+                    "Chưa cập nhật"}
             </span>
         </div>
+    );
+}
+
+function FilterInput({
+    label,
+    value,
+    onChange,
+    type = "text",
+    placeholder = "",
+    icon = null,
+}) {
+    return (
+        <label className="block">
+            <span className="mb-2 block text-xs font-black text-slate-500">
+                {label}
+            </span>
+
+            <div className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 transition focus-within:border-blue-500">
+                {icon && (
+                    <span className="text-slate-400">
+                        {icon}
+                    </span>
+                )}
+
+                <input
+                    type={type}
+                    value={
+                        value
+                    }
+                    placeholder={
+                        placeholder
+                    }
+                    min={
+                        type ===
+                            "number"
+                            ? 1
+                            : undefined
+                    }
+                    onChange={(
+                        event
+                    ) =>
+                        onChange(
+                            event.target
+                                .value
+                        )
+                    }
+                    className="min-w-0 flex-1 bg-transparent text-slate-900 outline-none"
+                />
+            </div>
+        </label>
+    );
+}
+
+function FilterSelect({
+    label,
+    value,
+    onChange,
+    children,
+}) {
+    return (
+        <label className="block">
+            <span className="mb-2 block text-xs font-black text-slate-500">
+                {label}
+            </span>
+
+            <select
+                value={
+                    value
+                }
+                onChange={(event) =>
+                    onChange(
+                        event.target
+                            .value
+                    )
+                }
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-slate-900 outline-none focus:border-blue-500"
+            >
+                {children}
+            </select>
+        </label>
+    );
+}
+
+function PageButton({
+    children,
+    onClick,
+    disabled,
+}) {
+    return (
+        <button
+            type="button"
+            onClick={
+                onClick
+            }
+            disabled={
+                disabled
+            }
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white transition hover:bg-slate-50 disabled:opacity-40"
+        >
+            {children}
+        </button>
     );
 }
 

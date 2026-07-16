@@ -4,7 +4,16 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 @Entity
-@Table(name = "seats")
+@Table(name = "seats", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_seats_event_seat_number", columnNames = {
+                "event_id",
+                "seat_number"
+        })
+}, indexes = {
+        @Index(name = "idx_seats_event_id", columnList = "event_id"),
+        @Index(name = "idx_seats_status", columnList = "status"),
+        @Index(name = "idx_seats_type", columnList = "seat_type")
+})
 @Data
 public class Seat {
 
@@ -12,18 +21,58 @@ public class Seat {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Sự kiện mà ghế thuộc về
+    @Column(name = "event_id", nullable = false)
     private Long eventId;
 
-    // Ví dụ: A1, A2, B1,...
+    @Column(name = "seat_number", nullable = false, length = 100)
     private String seatNumber;
 
-    // VIP, STANDARD, STANDING
+    @Column(name = "seat_type", nullable = false, length = 50)
     private String seatType;
 
-    // AVAILABLE, RESERVED, BOOKED
+    @Column(name = "status", nullable = false, length = 30)
     private String status;
-    //
+
+    @Column(name = "price", nullable = false)
     private Double price;
 
+    @PrePersist
+    public void prePersist() {
+        normalizeFields();
+    }
+
+    @PreUpdate
+    public void preUpdate() {
+        normalizeFields();
+    }
+
+    private void normalizeFields() {
+        if (seatNumber != null) {
+            seatNumber = seatNumber
+                    .trim()
+                    .toUpperCase();
+        }
+
+        if (seatType == null ||
+                seatType.isBlank()) {
+            seatType = "STANDARD";
+        } else {
+            seatType = seatType
+                    .trim()
+                    .toUpperCase();
+        }
+
+        if (status == null ||
+                status.isBlank()) {
+            status = "AVAILABLE";
+        } else {
+            status = status
+                    .trim()
+                    .toUpperCase();
+        }
+
+        if (price == null) {
+            price = 0D;
+        }
+    }
 }

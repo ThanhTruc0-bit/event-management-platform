@@ -9,7 +9,7 @@ import com.example.auth_service.dto.UserDTO;
 import com.example.auth_service.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-
+import com.example.auth_service.dto.UpdateProfileRequest;
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
@@ -49,4 +49,20 @@ public class AuthController {
     ) {
         return authService.profile(authorizationHeader);
     }
+    @PutMapping("/profile")
+public UserDTO updateProfile(
+        @RequestHeader(
+                value = "Authorization",
+                required = false
+        )
+        String authorizationHeader,
+
+        @RequestBody
+        UpdateProfileRequest request
+) {
+    return authService.updateProfile(
+            authorizationHeader,
+            request
+    );
+}
 }

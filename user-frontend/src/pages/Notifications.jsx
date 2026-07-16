@@ -17,6 +17,7 @@ import {
     CheckCircle,
     ChevronLeft,
     ChevronRight,
+    ExternalLink,
     Loader2,
     ReceiptText,
     RefreshCw,
@@ -27,43 +28,14 @@ import {
 
 const PAGE_SIZE = 10;
 
-function getCurrentUserId() {
+function decodeJwtPayload(token) {
     try {
-        const raw =
-            localStorage.getItem("user");
-
-        if (raw) {
-            const user =
-                JSON.parse(raw);
-
-            const id =
-                user?.userId ??
-                user?.id;
-
-            if (id) {
-                return Number(id);
-            }
-        }
-    } catch {
-        // Đọc JWT phía dưới.
-    }
-
-    try {
-        const token =
-            localStorage.getItem(
-                "accessToken"
-            );
-
-        if (!token) {
+        if (!token || !token.includes(".")) {
             return null;
         }
 
         const payload =
             token.split(".")[1];
-
-        if (!payload) {
-            return null;
-        }
 
         const normalized =
             payload
@@ -78,24 +50,102 @@ function getCurrentUserId() {
                 "="
             );
 
-        const decoded =
-            JSON.parse(
-                atob(padded)
-            );
-
-        return decoded?.userId
-            ? Number(decoded.userId)
-            : null;
+        return JSON.parse(
+            window.atob(padded)
+        );
     } catch {
         return null;
     }
+}
+
+function getCurrentUserId() {
+    const token =
+        localStorage.getItem(
+            "accessToken"
+        ) ||
+        localStorage.getItem(
+            "token"
+        ) ||
+        localStorage.getItem(
+            "jwt"
+        ) ||
+        localStorage.getItem(
+            "jwt-token"
+        );
+
+    const payload =
+        decodeJwtPayload(token);
+
+    const tokenUserId =
+        payload?.userId ??
+        payload?.id ??
+        payload?.uid;
+
+    if (
+        tokenUserId !== null &&
+        tokenUserId !== undefined &&
+        tokenUserId !== ""
+    ) {
+        const number =
+            Number(tokenUserId);
+
+        if (!Number.isNaN(number)) {
+            return number;
+        }
+    }
+
+    const keys = [
+        "user",
+        "currentUser",
+        "authUser",
+    ];
+
+    for (const key of keys) {
+        try {
+            const raw =
+                localStorage.getItem(key);
+
+            if (!raw) {
+                continue;
+            }
+
+            const parsed =
+                JSON.parse(raw);
+
+            const user =
+                parsed?.user || parsed;
+
+            const storedUserId =
+                user?.userId ??
+                user?.id ??
+                user?.uid;
+
+            if (
+                storedUserId !== null &&
+                storedUserId !== undefined &&
+                storedUserId !== ""
+            ) {
+                const number =
+                    Number(storedUserId);
+
+                if (!Number.isNaN(number)) {
+                    return number;
+                }
+            }
+        } catch {
+            // Bỏ qua.
+        }
+    }
+
+    return null;
 }
 
 function normalizePage(data) {
     if (Array.isArray(data)) {
         return {
             content: data,
-            totalElements: data.length,
+            totalElements:
+                data.length,
             totalPages:
                 data.length > 0
                     ? 1
@@ -105,7 +155,9 @@ function normalizePage(data) {
 
     return {
         content:
-            Array.isArray(data?.content)
+            Array.isArray(
+                data?.content
+            )
                 ? data.content
                 : [],
 
@@ -121,9 +173,407 @@ function normalizePage(data) {
     };
 }
 
+function isNotificationRead(
+    notification
+) {
+    return (
+        notification?.isRead === true ||
+        notification?.read === true
+    );
+}
+
+function toPositiveNumber(value) {
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
+        return null;
+    }
+
+    const number =
+        Number(value);
+
+    return Number.isFinite(number) &&
+        number > 0
+        ? number
+        : null;
+}
+
+function getUrlQueryParam(
+    url,
+    parameterName
+) {
+    if (!url) {
+        return "";
+    }
+
+    try {
+        const parsedUrl =
+            new URL(
+                url,
+                window.location.origin
+            );
+
+        return (
+            parsedUrl.searchParams.get(
+                parameterName
+            ) || ""
+        ).trim();
+    } catch {
+        return "";
+    }
+}
+
+function getTicketCodeFromNotification(
+    notification
+) {
+    const directTicketCode =
+        String(
+            notification?.ticketCode ||
+            notification?.ticket?.ticketCode ||
+            ""
+        ).trim();
+
+    if (directTicketCode) {
+        return directTicketCode;
+    }
+
+    const actionUrl =
+        String(
+            notification?.actionUrl ||
+            ""
+        ).trim();
+
+    const ticketCodeFromUrl =
+        getUrlQueryParam(
+            actionUrl,
+            "ticketCode"
+        );
+
+    if (ticketCodeFromUrl) {
+        return ticketCodeFromUrl;
+    }
+
+    const message =
+        String(
+            notification?.message ||
+            ""
+        ).trim();
+
+    /*
+     * Notification Service hiện tạo nội dung:
+     * "Vé {ticketCode} đã được phát hành."
+     *
+     * Dùng ticketCode này để mở đúng một vé,
+     * kể cả thông báo cũ chỉ có bookingId.
+     */
+    const match =
+        message.match(
+            /Vé\s+(.+?)\s+đã\s+được\s+phát\s+hành/i
+        );
+
+    return match?.[1]?.trim() || "";
+}
+
+function getTicketIdFromNotification(
+    notification
+) {
+    const directTicketId =
+        toPositiveNumber(
+            notification?.ticketId ??
+            notification?.ticket?.id
+        );
+
+    if (directTicketId) {
+        return directTicketId;
+    }
+
+    const actionUrl =
+        String(
+            notification?.actionUrl ||
+            ""
+        ).trim();
+
+    const ticketIdFromUrl =
+        toPositiveNumber(
+            getUrlQueryParam(
+                actionUrl,
+                "ticketId"
+            )
+        );
+
+    if (ticketIdFromUrl) {
+        return ticketIdFromUrl;
+    }
+
+    const eventKey =
+        String(
+            notification?.eventKey ||
+            ""
+        ).trim();
+
+    const eventKeyMatch =
+        eventKey.match(
+            /TICKET_ISSUED:(\d+)$/i
+        );
+
+    return toPositiveNumber(
+        eventKeyMatch?.[1]
+    );
+}
+
+function getNotificationTarget(
+    notification
+) {
+    const type =
+        String(
+            notification?.type ||
+            ""
+        )
+            .trim()
+            .toUpperCase();
+
+    const actionUrl =
+        String(
+            notification?.actionUrl ||
+            ""
+        ).trim();
+
+    const bookingId =
+        toPositiveNumber(
+            notification?.bookingId
+        );
+
+    /*
+     * Thông báo phát hành vé phải mở đúng
+     * một vé, không mở tất cả vé của booking.
+     */
+    if (type === "TICKET_ISSUED") {
+        const ticketId =
+            getTicketIdFromNotification(
+                notification
+            );
+
+        if (ticketId) {
+            return `/my-tickets?ticketId=${ticketId}`;
+        }
+
+        const ticketCode =
+            getTicketCodeFromNotification(
+                notification
+            );
+
+        if (ticketCode) {
+            return `/my-tickets?ticketCode=${encodeURIComponent(
+                ticketCode
+            )}`;
+        }
+
+        /*
+         * Chỉ fallback bookingId khi dữ liệu cũ
+         * hoàn toàn không có ticketId/ticketCode.
+         */
+        if (bookingId) {
+            return `/my-tickets?bookingId=${bookingId}`;
+        }
+
+        if (actionUrl) {
+            return actionUrl;
+        }
+
+        return "/my-tickets";
+    }
+
+    /*
+     * Thanh toán thành công liên quan đến
+     * toàn bộ vé trong booking.
+     */
+    if (
+        type === "PAYMENT_SUCCESS" &&
+        bookingId
+    ) {
+        return `/my-tickets?bookingId=${bookingId}`;
+    }
+
+    if (
+        [
+            "BOOKING_CREATED",
+            "BOOKING_CANCELLED",
+            "PAYMENT_FAILED",
+        ].includes(type) &&
+        bookingId
+    ) {
+        return `/my-bookings?bookingId=${bookingId}`;
+    }
+
+    if (actionUrl) {
+        return actionUrl;
+    }
+
+    if (type === "PAYMENT_SUCCESS") {
+        return "/my-tickets";
+    }
+
+    if (
+        [
+            "BOOKING_CREATED",
+            "BOOKING_CANCELLED",
+            "PAYMENT_FAILED",
+        ].includes(type)
+    ) {
+        return "/my-bookings";
+    }
+
+    return "";
+}
+
+function getRequestErrorMessage(
+    error,
+    fallback
+) {
+    const status =
+        error?.response?.status;
+
+    const backendMessage =
+        error?.response
+            ?.data
+            ?.message ||
+        error?.response
+            ?.data
+            ?.error;
+
+    if (status === 401) {
+        return (
+            backendMessage ||
+            "Phiên đăng nhập đã hết hạn."
+        );
+    }
+
+    if (status === 403) {
+        return (
+            backendMessage ||
+            "Thông báo này không thuộc tài khoản hiện tại."
+        );
+    }
+
+    return (
+        backendMessage ||
+        error?.message ||
+        fallback
+    );
+}
+
+function getTypeInfo(type) {
+    const normalizedType =
+        String(type || "")
+            .toUpperCase();
+
+    if (
+        normalizedType ===
+        "PAYMENT_SUCCESS"
+    ) {
+        return {
+            icon: CheckCircle,
+            label:
+                "Thanh toán thành công",
+            className:
+                "bg-emerald-500/15 text-emerald-300",
+        };
+    }
+
+    if (
+        normalizedType ===
+        "PAYMENT_FAILED"
+    ) {
+        return {
+            icon: ReceiptText,
+            label:
+                "Thanh toán thất bại",
+            className:
+                "bg-red-500/15 text-red-300",
+        };
+    }
+
+    if (
+        normalizedType ===
+        "BOOKING_CANCELLED"
+    ) {
+        return {
+            icon: ReceiptText,
+            label:
+                "Booking đã hủy",
+            className:
+                "bg-red-500/15 text-red-300",
+        };
+    }
+
+    if (
+        normalizedType ===
+        "BOOKING_CREATED"
+    ) {
+        return {
+            icon: ReceiptText,
+            label:
+                "Booking mới",
+            className:
+                "bg-blue-500/15 text-blue-300",
+        };
+    }
+
+    if (
+        normalizedType ===
+        "TICKET_ISSUED"
+    ) {
+        return {
+            icon: Ticket,
+            label:
+                "Vé đã phát hành",
+            className:
+                "bg-purple-500/15 text-purple-300",
+        };
+    }
+
+    return {
+        icon: Bell,
+        label: "Hệ thống",
+        className:
+            "bg-slate-500/15 text-slate-300",
+    };
+}
+
+function formatDateTime(value) {
+    if (!value) {
+        return "";
+    }
+
+    const date =
+        new Date(value);
+
+    if (
+        Number.isNaN(
+            date.getTime()
+        )
+    ) {
+        return String(value)
+            .replace("T", " ");
+    }
+
+    return date.toLocaleString(
+        "vi-VN"
+    );
+}
+
 function Notifications() {
     const navigate =
         useNavigate();
+
+    const userId =
+        useMemo(
+            () =>
+                getCurrentUserId(),
+            []
+        );
 
     const [
         notifications,
@@ -135,17 +585,25 @@ function Notifications() {
         setKeywordInput,
     ] = useState("");
 
-    const [keyword, setKeyword] =
-        useState("");
+    const [
+        keyword,
+        setKeyword,
+    ] = useState("");
 
-    const [type, setType] =
-        useState("ALL");
+    const [
+        type,
+        setType,
+    ] = useState("ALL");
 
-    const [readFilter, setReadFilter] =
-        useState("ALL");
+    const [
+        readFilter,
+        setReadFilter,
+    ] = useState("ALL");
 
-    const [page, setPage] =
-        useState(0);
+    const [
+        page,
+        setPage,
+    ] = useState(0);
 
     const [
         totalPages,
@@ -162,14 +620,25 @@ function Notifications() {
         setUnreadCount,
     ] = useState(0);
 
-    const [loading, setLoading] =
-        useState(false);
+    const [
+        loading,
+        setLoading,
+    ] = useState(false);
 
-    const [error, setError] =
-        useState("");
+    const [
+        actionLoadingId,
+        setActionLoadingId,
+    ] = useState(null);
 
-    const userId =
-        getCurrentUserId();
+    const [
+        markingAll,
+        setMarkingAll,
+    ] = useState(false);
+
+    const [
+        error,
+        setError,
+    ] = useState("");
 
     useEffect(() => {
         if (!userId) {
@@ -183,8 +652,7 @@ function Notifications() {
             return;
         }
 
-        loadNotifications();
-        loadUnreadCount();
+        loadData();
 
         // eslint-disable-next-line
     }, [
@@ -195,201 +663,360 @@ function Notifications() {
         userId,
     ]);
 
+    useEffect(() => {
+        if (
+            totalPages > 0 &&
+            page >= totalPages
+        ) {
+            setPage(
+                totalPages - 1
+            );
+        }
+    }, [
+        page,
+        totalPages,
+    ]);
+
     const loadNotifications =
+        async () => {
+            if (!userId) {
+                return;
+            }
+
+            const response =
+                await axiosClient.get(
+                    `/notification-service/notifications/user/${userId}`,
+                    {
+                        params: {
+                            page,
+                            size:
+                                PAGE_SIZE,
+
+                            keyword:
+                                keyword ||
+                                undefined,
+
+                            type:
+                                type ===
+                                    "ALL"
+                                    ? undefined
+                                    : type,
+
+                            isRead:
+                                readFilter ===
+                                    "ALL"
+                                    ? undefined
+                                    : readFilter ===
+                                    "READ",
+
+                            sortBy:
+                                "createdAt",
+
+                            sortDirection:
+                                "desc",
+                        },
+                    }
+                );
+
+            const pageData =
+                normalizePage(
+                    response.data
+                );
+
+            setNotifications(
+                pageData.content
+            );
+
+            setTotalPages(
+                pageData.totalPages
+            );
+
+            setTotalElements(
+                pageData.totalElements
+            );
+        };
+
+    const loadUnreadCount =
+        async () => {
+            if (!userId) {
+                return;
+            }
+
+            const response =
+                await axiosClient.get(
+                    `/notification-service/notifications/user/${userId}/unread-count`
+                );
+
+            setUnreadCount(
+                Number(
+                    response.data
+                        ?.unreadCount
+                ) || 0
+            );
+        };
+
+    const loadData =
         async () => {
             try {
                 setLoading(true);
                 setError("");
 
-                const response =
-                    await axiosClient.get(
-                        `/notification-service/notifications/user/${userId}`,
-                        {
-                            params: {
-                                page,
-                                size:
-                                    PAGE_SIZE,
-
-                                keyword:
-                                    keyword ||
-                                    undefined,
-
-                                type:
-                                    type ===
-                                        "ALL"
-                                        ? undefined
-                                        : type,
-
-                                isRead:
-                                    readFilter ===
-                                        "ALL"
-                                        ? undefined
-                                        : readFilter ===
-                                        "READ",
-
-                                sortBy:
-                                    "createdAt",
-
-                                sortDirection:
-                                    "desc",
-                            },
-                        }
-                    );
-
-                const pageData =
-                    normalizePage(
-                        response.data
-                    );
-
-                setNotifications(
-                    pageData.content
-                );
-
-                setTotalPages(
-                    pageData.totalPages
-                );
-
-                setTotalElements(
-                    pageData.totalElements
-                );
-            } catch (requestError) {
+                await Promise.all([
+                    loadNotifications(),
+                    loadUnreadCount(),
+                ]);
+            } catch (
+            requestError
+            ) {
                 console.error(
+                    "Load notification error:",
                     requestError
                 );
-
-                setNotifications([]);
-                setTotalPages(0);
-                setTotalElements(0);
 
                 setError(
-                    requestError
-                        ?.response
-                        ?.data
-                        ?.message ||
-                    "Không tải được thông báo."
+                    getRequestErrorMessage(
+                        requestError,
+                        "Không tải được thông báo."
+                    )
                 );
             } finally {
                 setLoading(false);
             }
         };
 
-    const loadUnreadCount =
-        async () => {
-            try {
-                const response =
-                    await axiosClient.get(
-                        `/notification-service/notifications/user/${userId}/unread-count`
-                    );
-
-                setUnreadCount(
-                    Number(
-                        response.data
-                            ?.unreadCount
-                    ) || 0
-                );
-            } catch (requestError) {
-                console.error(
-                    requestError
-                );
-            }
+    const notifyHeaderChanged =
+        () => {
+            window.dispatchEvent(
+                new CustomEvent(
+                    "notification:changed"
+                )
+            );
         };
 
-    const markAsRead =
-        async (
-            notification
-        ) => {
+    const navigateToTarget =
+        (notification) => {
+            const target =
+                getNotificationTarget(
+                    notification
+                );
+
+            if (!target) {
+                return;
+            }
+
             if (
-                notification.isRead
+                target.startsWith(
+                    "http://"
+                ) ||
+                target.startsWith(
+                    "https://"
+                )
             ) {
-                if (
-                    notification.actionUrl
-                ) {
-                    navigate(
-                        notification.actionUrl
-                    );
-                }
+                window.location.href =
+                    target;
+
+                return;
+            }
+
+            navigate(target);
+        };
+
+    const openNotification =
+        async (notification) => {
+            if (
+                isNotificationRead(
+                    notification
+                )
+            ) {
+                navigateToTarget(
+                    notification
+                );
 
                 return;
             }
 
             try {
+                setActionLoadingId(
+                    notification.id
+                );
+
+                setError("");
+
                 await axiosClient.put(
                     `/notification-service/notifications/${notification.id}/read`
                 );
 
-                await Promise.all([
-                    loadNotifications(),
-                    loadUnreadCount(),
-                ]);
+                setNotifications(
+                    (current) =>
+                        current.map(
+                            (item) =>
+                                item.id ===
+                                    notification.id
+                                    ? {
+                                        ...item,
+                                        isRead:
+                                            true,
+                                        read: true,
+                                    }
+                                    : item
+                        )
+                );
 
-                if (
-                    notification.actionUrl
-                ) {
-                    navigate(
-                        notification.actionUrl
-                    );
-                }
-            } catch (requestError) {
-                setError(
+                setUnreadCount(
+                    (current) =>
+                        Math.max(
+                            0,
+                            current - 1
+                        )
+                );
+
+                notifyHeaderChanged();
+
+                navigateToTarget(
+                    notification
+                );
+            } catch (
+            requestError
+            ) {
+                console.error(
                     requestError
-                        ?.response
-                        ?.data
-                        ?.message ||
-                    "Không đánh dấu đã đọc được."
+                );
+
+                setError(
+                    getRequestErrorMessage(
+                        requestError,
+                        "Không mở được thông báo."
+                    )
+                );
+            } finally {
+                setActionLoadingId(
+                    null
                 );
             }
         };
 
     const markAllAsRead =
         async () => {
+            if (
+                !userId ||
+                unreadCount === 0
+            ) {
+                return;
+            }
+
             try {
+                setMarkingAll(true);
+                setError("");
+
                 await axiosClient.put(
                     `/notification-service/notifications/user/${userId}/read-all`
                 );
 
-                await Promise.all([
-                    loadNotifications(),
-                    loadUnreadCount(),
-                ]);
-            } catch (requestError) {
-                setError(
-                    requestError
-                        ?.response
-                        ?.data
-                        ?.message ||
-                    "Không đánh dấu tất cả đã đọc được."
+                setNotifications(
+                    (current) =>
+                        current.map(
+                            (notification) => ({
+                                ...notification,
+                                isRead: true,
+                                read: true,
+                            })
+                        )
                 );
+
+                setUnreadCount(0);
+
+                notifyHeaderChanged();
+            } catch (
+            requestError
+            ) {
+                setError(
+                    getRequestErrorMessage(
+                        requestError,
+                        "Không đánh dấu tất cả đã đọc được."
+                    )
+                );
+            } finally {
+                setMarkingAll(false);
             }
         };
 
     const deleteNotification =
-        async (
-            notificationId
-        ) => {
+        async (notification) => {
             if (
                 !window.confirm(
-                    "Xóa thông báo này?"
+                    "Bạn chắc chắn muốn xóa thông báo này?"
                 )
             ) {
                 return;
             }
 
             try {
-                await axiosClient.delete(
-                    `/notification-service/notifications/${notificationId}`
+                setActionLoadingId(
+                    notification.id
                 );
 
-                await Promise.all([
-                    loadNotifications(),
-                    loadUnreadCount(),
-                ]);
-            } catch (requestError) {
+                setError("");
+
+                await axiosClient.delete(
+                    `/notification-service/notifications/${notification.id}`
+                );
+
+                const wasUnread =
+                    !isNotificationRead(
+                        notification
+                    );
+
+                setNotifications(
+                    (current) =>
+                        current.filter(
+                            (item) =>
+                                item.id !==
+                                notification.id
+                        )
+                );
+
+                setTotalElements(
+                    (current) =>
+                        Math.max(
+                            0,
+                            current - 1
+                        )
+                );
+
+                if (wasUnread) {
+                    setUnreadCount(
+                        (current) =>
+                            Math.max(
+                                0,
+                                current - 1
+                            )
+                    );
+                }
+
+                notifyHeaderChanged();
+
+                if (
+                    notifications.length ===
+                    1 &&
+                    page > 0
+                ) {
+                    setPage(
+                        (current) =>
+                            current - 1
+                    );
+                }
+            } catch (
+            requestError
+            ) {
                 setError(
-                    requestError
-                        ?.response
-                        ?.data
-                        ?.message ||
-                    "Không xóa được thông báo."
+                    getRequestErrorMessage(
+                        requestError,
+                        "Không xóa được thông báo."
+                    )
+                );
+            } finally {
+                setActionLoadingId(
+                    null
                 );
             }
         };
@@ -405,71 +1032,13 @@ function Notifications() {
             setPage(0);
         };
 
-    const clearFilters = () => {
-        setKeywordInput("");
-        setKeyword("");
-        setType("ALL");
-        setReadFilter("ALL");
-        setPage(0);
-    };
-
-    const formatDateTime =
-        (value) => {
-            if (!value) {
-                return "";
-            }
-
-            return new Date(
-                value
-            ).toLocaleString(
-                "vi-VN"
-            );
-        };
-
-    const getTypeInfo =
-        (notificationType) => {
-            if (
-                notificationType ===
-                "PAYMENT_SUCCESS"
-            ) {
-                return {
-                    icon:
-                        CheckCircle,
-                    className:
-                        "bg-emerald-500/15 text-emerald-300",
-                };
-            }
-
-            if (
-                notificationType ===
-                "PAYMENT_FAILED" ||
-                notificationType ===
-                "BOOKING_CANCELLED"
-            ) {
-                return {
-                    icon:
-                        ReceiptText,
-                    className:
-                        "bg-red-500/15 text-red-300",
-                };
-            }
-
-            if (
-                notificationType ===
-                "TICKET_ISSUED"
-            ) {
-                return {
-                    icon: Ticket,
-                    className:
-                        "bg-purple-500/15 text-purple-300",
-                };
-            }
-
-            return {
-                icon: Bell,
-                className:
-                    "bg-blue-500/15 text-blue-300",
-            };
+    const clearFilters =
+        () => {
+            setKeywordInput("");
+            setKeyword("");
+            setType("ALL");
+            setReadFilter("ALL");
+            setPage(0);
         };
 
     const pageNumbers =
@@ -511,7 +1080,8 @@ function Notifications() {
                             <Bell
                                 size={16}
                             />
-                            Thông báo
+
+                            Trung tâm thông báo
                         </div>
 
                         <h1 className="mt-4 text-4xl font-black">
@@ -529,33 +1099,52 @@ function Notifications() {
                         </p>
                     </div>
 
-                    <div className="flex gap-3">
+                    <div className="flex flex-wrap gap-3">
                         <button
                             type="button"
                             onClick={
-                                loadNotifications
+                                loadData
                             }
-                            className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 font-black"
+                            disabled={
+                                loading
+                            }
+                            className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 font-black disabled:opacity-50"
                         >
                             <RefreshCw
                                 size={17}
+                                className={
+                                    loading
+                                        ? "animate-spin"
+                                        : ""
+                                }
                             />
-                            Reload
+
+                            Làm mới
                         </button>
 
                         <button
                             type="button"
                             disabled={
-                                unreadCount === 0
+                                unreadCount ===
+                                0 ||
+                                markingAll
                             }
                             onClick={
                                 markAllAsRead
                             }
-                            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-black disabled:opacity-40"
+                            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-black text-slate-950 disabled:opacity-40"
                         >
-                            <CheckCheck
-                                size={17}
-                            />
+                            {markingAll ? (
+                                <Loader2
+                                    size={17}
+                                    className="animate-spin"
+                                />
+                            ) : (
+                                <CheckCheck
+                                    size={17}
+                                />
+                            )}
+
                             Đọc tất cả
                         </button>
                     </div>
@@ -570,6 +1159,7 @@ function Notifications() {
                     <div className="flex items-center gap-3 rounded-xl bg-white/5 px-4 py-3 md:col-span-2">
                         <Search
                             size={18}
+                            className="text-slate-400"
                         />
 
                         <input
@@ -585,37 +1175,49 @@ function Notifications() {
                                         .value
                                 )
                             }
-                            placeholder="Tìm tiêu đề, nội dung..."
+                            placeholder="Tìm tiêu đề hoặc nội dung..."
                             className="min-w-0 flex-1 bg-transparent outline-none"
                         />
                     </div>
 
                     <select
                         value={type}
-                        onChange={(event) => {
+                        onChange={(
+                            event
+                        ) => {
                             setType(
                                 event.target
                                     .value
                             );
+
                             setPage(0);
                         }}
-                        className="rounded-xl bg-[#252932] px-4"
+                        className="rounded-xl bg-[#252932] px-4 py-3 outline-none"
                     >
                         <option value="ALL">
                             Tất cả loại
                         </option>
+
+                        <option value="SYSTEM">
+                            Hệ thống
+                        </option>
+
                         <option value="BOOKING_CREATED">
                             Đặt vé
                         </option>
+
                         <option value="BOOKING_CANCELLED">
                             Hủy booking
                         </option>
+
                         <option value="PAYMENT_SUCCESS">
                             Thanh toán thành công
                         </option>
+
                         <option value="PAYMENT_FAILED">
                             Thanh toán thất bại
                         </option>
+
                         <option value="TICKET_ISSUED">
                             Vé đã phát hành
                         </option>
@@ -625,30 +1227,35 @@ function Notifications() {
                         value={
                             readFilter
                         }
-                        onChange={(event) => {
+                        onChange={(
+                            event
+                        ) => {
                             setReadFilter(
                                 event.target
                                     .value
                             );
+
                             setPage(0);
                         }}
-                        className="rounded-xl bg-[#252932] px-4"
+                        className="rounded-xl bg-[#252932] px-4 py-3 outline-none"
                     >
                         <option value="ALL">
-                            Tất cả
+                            Tất cả trạng thái
                         </option>
+
                         <option value="UNREAD">
                             Chưa đọc
                         </option>
+
                         <option value="READ">
                             Đã đọc
                         </option>
                     </select>
 
-                    <div className="flex gap-3 md:col-span-4">
+                    <div className="flex flex-wrap gap-3 md:col-span-4">
                         <button
                             type="submit"
-                            className="rounded-xl bg-emerald-500 px-6 py-3 font-black"
+                            className="rounded-xl bg-emerald-500 px-6 py-3 font-black text-slate-950"
                         >
                             Tìm kiếm
                         </button>
@@ -682,12 +1289,20 @@ function Notifications() {
                 </div>
 
                 {loading ? (
-                    <div className="mt-6 flex min-h-52 items-center justify-center rounded-3xl bg-white/5">
-                        <Loader2 className="animate-spin" />
+                    <div className="mt-6 flex min-h-52 items-center justify-center rounded-3xl border border-white/10 bg-white/5">
+                        <Loader2
+                            size={30}
+                            className="animate-spin text-emerald-400"
+                        />
                     </div>
                 ) : notifications.length ===
                     0 ? (
-                    <div className="mt-6 rounded-3xl bg-white/5 p-10 text-center text-slate-400">
+                    <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-12 text-center text-slate-400">
+                        <Bell
+                            size={48}
+                            className="mx-auto mb-4 opacity-40"
+                        />
+
                         Không có thông báo phù hợp.
                     </div>
                 ) : (
@@ -704,75 +1319,118 @@ function Notifications() {
                                 const Icon =
                                     info.icon;
 
+                                const read =
+                                    isNotificationRead(
+                                        notification
+                                    );
+
+                                const actionLoading =
+                                    actionLoadingId ===
+                                    notification.id;
+
+                                const target =
+                                    getNotificationTarget(
+                                        notification
+                                    );
+
                                 return (
                                     <article
                                         key={
                                             notification.id
                                         }
-                                        className={`flex gap-4 rounded-3xl border p-5 ${notification.isRead
+                                        className={`rounded-3xl border p-5 transition ${read
                                             ? "border-white/10 bg-[#1b1f27]"
                                             : "border-emerald-500/30 bg-emerald-500/5"
                                             }`}
                                     >
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                markAsRead(
-                                                    notification
-                                                )
-                                            }
-                                            className="flex min-w-0 flex-1 gap-4 text-left"
-                                        >
-                                            <div
-                                                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${info.className}`}
+                                        <div className="flex gap-4">
+                                            <button
+                                                type="button"
+                                                disabled={
+                                                    actionLoading
+                                                }
+                                                onClick={() =>
+                                                    openNotification(
+                                                        notification
+                                                    )
+                                                }
+                                                className="flex min-w-0 flex-1 gap-4 text-left disabled:opacity-60"
                                             >
-                                                <Icon
-                                                    size={
-                                                        22
-                                                    }
-                                                />
-                                            </div>
+                                                <div
+                                                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${info.className}`}
+                                                >
+                                                    {actionLoading ? (
+                                                        <Loader2
+                                                            size={22}
+                                                            className="animate-spin"
+                                                        />
+                                                    ) : (
+                                                        <Icon
+                                                            size={22}
+                                                        />
+                                                    )}
+                                                </div>
 
-                                            <div className="min-w-0">
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <h2 className="font-black">
-                                                        {
-                                                            notification.title
-                                                        }
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${info.className}`}>
+                                                            {
+                                                                info.label
+                                                            }
+                                                        </span>
+
+                                                        {!read && (
+                                                            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                                                        )}
+                                                    </div>
+
+                                                    <h2 className="mt-3 text-lg font-black">
+                                                        {notification.title ||
+                                                            "Thông báo"}
                                                     </h2>
 
-                                                    {!notification.isRead && (
-                                                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                                                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                                                        {
+                                                            notification.message
+                                                        }
+                                                    </p>
+
+                                                    <div className="mt-3 text-xs text-slate-500">
+                                                        {formatDateTime(
+                                                            notification.createdAt
+                                                        )}
+                                                    </div>
+
+                                                    {target && (
+                                                        <div className="mt-4 inline-flex items-center gap-1.5 text-sm font-black text-emerald-300">
+                                                            Xem chi tiết
+
+                                                            <ExternalLink
+                                                                size={15}
+                                                            />
+                                                        </div>
                                                     )}
                                                 </div>
+                                            </button>
 
-                                                <p className="mt-2 text-sm leading-6 text-slate-300">
-                                                    {
-                                                        notification.message
-                                                    }
-                                                </p>
-
-                                                <div className="mt-3 text-xs text-slate-500">
-                                                    {formatDateTime(
-                                                        notification.createdAt
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </button>
-
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                deleteNotification(
-                                                    notification.id
-                                                )
-                                            }
-                                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-300"
-                                        >
-                                            <Trash2
-                                                size={17}
-                                            />
-                                        </button>
+                                            <button
+                                                type="button"
+                                                disabled={
+                                                    actionLoading
+                                                }
+                                                onClick={() =>
+                                                    deleteNotification(
+                                                        notification
+                                                    )
+                                                }
+                                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-300 disabled:opacity-50"
+                                                title="Xóa thông báo"
+                                            >
+                                                <Trash2
+                                                    size={17}
+                                                />
+                                            </button>
+                                        </div>
                                     </article>
                                 );
                             }
@@ -781,7 +1439,7 @@ function Notifications() {
                 )}
 
                 {totalPages > 1 && (
-                    <div className="mt-8 flex justify-center gap-2">
+                    <div className="mt-8 flex flex-wrap justify-center gap-2">
                         <button
                             type="button"
                             disabled={
@@ -794,8 +1452,7 @@ function Notifications() {
                                     ) =>
                                         Math.max(
                                             0,
-                                            current -
-                                            1
+                                            current - 1
                                         )
                                 )
                             }
@@ -822,7 +1479,7 @@ function Notifications() {
                                     }
                                     className={`h-11 min-w-11 rounded-xl px-3 font-black ${page ===
                                         pageNumber
-                                        ? "bg-emerald-500"
+                                        ? "bg-emerald-500 text-slate-950"
                                         : "bg-white/10"
                                         }`}
                                 >
@@ -843,8 +1500,7 @@ function Notifications() {
                                     (
                                         current
                                     ) =>
-                                        current +
-                                        1
+                                        current + 1
                                 )
                             }
                             className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 disabled:opacity-40"
@@ -859,11 +1515,12 @@ function Notifications() {
                 <div className="mt-8">
                     <Link
                         to="/my-bookings"
-                        className="inline-flex items-center gap-2 text-emerald-300"
+                        className="inline-flex items-center gap-2 font-black text-emerald-300"
                     >
                         <ReceiptText
                             size={18}
                         />
+
                         Xem booking của tôi
                     </Link>
                 </div>

@@ -1,6 +1,11 @@
 package com.example.booking_service.service;
 
-import com.example.booking_service.dto.*;
+import com.example.booking_service.dto.BookingDetailResponse;
+import com.example.booking_service.dto.BookingRequest;
+import com.example.booking_service.dto.EventDTO;
+import com.example.booking_service.dto.SeatDTO;
+import com.example.booking_service.dto.TicketCreateRequest;
+import com.example.booking_service.dto.UserDTO;
 import com.example.booking_service.entity.Booking;
 import com.example.booking_service.entity.BookingItem;
 import com.example.booking_service.event.BookingCreatedEvent;
@@ -14,22 +19,35 @@ import com.example.booking_service.repository.BookingRepository;
 import com.example.booking_service.specification.BookingSpecification;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class BookingService {
 
         private static final int MAX_TICKETS_PER_USER_PER_EVENT = 4;
-
         private static final int BOOKING_HOLD_MINUTES = 15;
+
+        /*
+         * Quyền nội bộ dùng khi Booking Service gọi
+         * Ticket Service để phát hành hoặc hủy vé.
+         */
+        private static final String INTERNAL_ROLE = "ADMIN";
 
         private static final Set<String> ALLOWED_BOOKING_STATUSES = Set.of(
                         "PENDING",
@@ -51,17 +69,11 @@ public class BookingService {
                         "cancelledAt");
 
         private final BookingRepository bookingRepository;
-
         private final BookingItemRepository bookingItemRepository;
-
         private final UserClient userClient;
-
         private final EventClient eventClient;
-
         private final SeatClient seatClient;
-
         private final TicketClient ticketClient;
-
         private final BookingEventProducer bookingEventProducer;
 
         public Page<Booking> searchBookings(
@@ -80,10 +92,8 @@ public class BookingService {
                         String role) {
                 requireAdmin(role);
                 validatePage(page, size);
-
-                validateAmountRange(
-                                minAmount,
-                                maxAmount);
+                validateAmountRange(minAmount, maxAmount);
+                validateDateRange(fromDate, toDate);
 
                 Pageable pageable = PageRequest.of(
                                 page,
@@ -95,8 +105,7 @@ public class BookingService {
                 return bookingRepository.findAll(
                                 BookingSpecification.filter(
                                                 keyword,
-                                                normalizeOptionalStatus(
-                                                                status),
+                                                normalizeOptionalStatus(status),
                                                 userId,
                                                 eventId,
                                                 minAmount,
@@ -136,8 +145,7 @@ public class BookingService {
                 return bookingRepository.findAll(
                                 BookingSpecification.filter(
                                                 keyword,
-                                                normalizeOptionalStatus(
-                                                                status),
+                                                normalizeOptionalStatus(status),
                                                 userId,
                                                 eventId,
                                                 null,
@@ -201,8 +209,11 @@ public class BookingService {
                                 eventId,
                                 request.getSeatIds());
 
-                getUserFromService(userId);
-                getEventFromService(eventId);
+                getUserFromService(
+                                userId);
+
+                getEventFromService(
+                                eventId);
 
                 List<SeatDTO> seats = validateAndLoadSeats(
                                 request.getSeatIds(),
@@ -220,10 +231,6 @@ public class BookingService {
                 List<Long> reservedSeatIds = new ArrayList<>();
 
                 try {
-                        /*
-                         * Seat Service phải chống tranh ghế:
-                         * chỉ AVAILABLE mới chuyển RESERVED.
-                         */
                         for (SeatDTO seat : seats) {
                                 reserveSeat(
                                                 seat.getId(),
@@ -276,11 +283,12 @@ public class BookingService {
                                 item.setPrice(
                                                 seat.getPrice());
 
-                                items.add(item);
+                                items.add(
+                                                item);
                         }
 
-                        bookingItemRepository
-                                        .saveAll(items);
+                        bookingItemRepository.saveAll(
+                                        items);
 
                         sendBookingCreatedEvent(
                                         savedBooking);
@@ -295,8 +303,8 @@ public class BookingService {
                         rollbackReservedSeats(
                                         reservedSeatIds);
 
-                        if (exception.status() == 400
-                                        || exception.status() == 409) {
+                        if (exception.status() == 400 ||
+                                        exception.status() == 409) {
                                 throw new ResponseStatusException(
                                                 HttpStatus.CONFLICT,
                                                 "Có ghế vừa được người khác giữ. Vui lòng chọn ghế khác.");
@@ -320,9 +328,11 @@ public class BookingService {
                         Long id,
                         String status,
                         String role) {
-                requireAdmin(role);
+                requireAdmin(
+                                role);
 
-                Booking booking = findBookingById(id);
+                Booking booking = findBookingById(
+                                id);
 
                 String currentStatus = normalizeStatus(
                                 booking.getStatus());
@@ -331,22 +341,18 @@ public class BookingService {
                                 status);
 
                 /*
-                 * Callback có thể gọi lại.
-                 * Nếu cùng trạng thái thì trả về luôn,
-                 * không tạo ticket trùng.
+                 * Callback có thể gọi lại nhiều lần.
+                 * Nếu booking đã đúng trạng thái thì không
+                 * phát hành vé lần nữa.
                  */
                 if (currentStatus.equals(
                                 newStatus)) {
                         return booking;
                 }
 
-                if ("PAID".equals(
-                                currentStatus)) {
-                        throw new ResponseStatusException(
-                                        HttpStatus.CONFLICT,
-                                        "PAID booking cannot change to "
-                                                        + newStatus);
-                }
+                validateStatusTransition(
+                                currentStatus,
+                                newStatus);
 
                 List<BookingItem> items = bookingItemRepository
                                 .findByBookingIdOrderByIdAsc(
@@ -354,9 +360,8 @@ public class BookingService {
 
                 if ("PAID".equals(
                                 newStatus)) {
-                        if (booking.getExpiresAt() != null
-                                        && booking
-                                                        .getExpiresAt()
+                        if (booking.getExpiresAt() != null &&
+                                        booking.getExpiresAt()
                                                         .isBefore(
                                                                         LocalDateTime.now())) {
                                 throw new ResponseStatusException(
@@ -365,40 +370,51 @@ public class BookingService {
                         }
 
                         try {
-                                markSeatsBooked(items);
+                                markSeatsBooked(
+                                                items);
 
                                 issueTickets(
                                                 booking,
                                                 items);
                         } catch (Exception exception) {
                                 /*
-                                 * Cố gắng đưa ghế lại RESERVED
-                                 * nếu Ticket Service lỗi.
+                                 * Không hủy vé tại đây. Có trường hợp
+                                 * Ticket Service đã commit vé nhưng Feign
+                                 * bị timeout khi chờ response. Endpoint
+                                 * issue-batch có tính idempotent nên lần
+                                 * đồng bộ sau sẽ dùng lại vé đã tồn tại.
                                  */
                                 reserveBookingSeats(
                                                 items);
 
+                                String causeMessage = exception.getMessage() == null
+                                                ? "Unknown downstream error"
+                                                : exception.getMessage();
+
                                 throw new ResponseStatusException(
                                                 HttpStatus.SERVICE_UNAVAILABLE,
-                                                "Cannot complete booking because Ticket or Seat Service is unavailable");
+                                                "Cannot complete booking because Ticket or Seat Service failed: "
+                                                                + causeMessage,
+                                                exception);
                         }
 
                         booking.setPaidAt(
                                         LocalDateTime.now());
-                } else if ("CANCELLED".equals(newStatus)
-                                || "EXPIRED".equals(newStatus)
-                                || "FAILED".equals(newStatus)) {
-                        releaseSeats(items);
+                } else if ("CANCELLED".equals(
+                                newStatus) ||
+                                "EXPIRED".equals(
+                                                newStatus)
+                                ||
+                                "FAILED".equals(
+                                                newStatus)) {
+                        releaseSeats(
+                                        items);
 
                         if ("CANCELLED".equals(
                                         newStatus)) {
                                 booking.setCancelledAt(
                                                 LocalDateTime.now());
                         }
-                } else if ("PENDING".equals(newStatus)) {
-                        throw new ResponseStatusException(
-                                        HttpStatus.CONFLICT,
-                                        "Cannot manually return booking to PENDING");
                 }
 
                 booking.setStatus(
@@ -413,7 +429,8 @@ public class BookingService {
                         Long id,
                         Long currentUserId,
                         String role) {
-                Booking booking = findBookingById(id);
+                Booking booking = findBookingById(
+                                id);
 
                 checkOwnerOrAdmin(
                                 booking.getUserId(),
@@ -423,16 +440,18 @@ public class BookingService {
                 String status = normalizeStatus(
                                 booking.getStatus());
 
-                if ("CANCELLED".equals(status)
-                                || "EXPIRED".equals(status)) {
+                if ("CANCELLED".equals(
+                                status) ||
+                                "EXPIRED".equals(
+                                                status)
+                                ||
+                                "FAILED".equals(
+                                                status)) {
                         return booking;
                 }
 
-                /*
-                 * Không hủy booking PAID
-                 * khi chưa có hoàn tiền.
-                 */
-                if ("PAID".equals(status)) {
+                if ("PAID".equals(
+                                status)) {
                         throw new ResponseStatusException(
                                         HttpStatus.CONFLICT,
                                         "Booking đã thanh toán không thể hủy khi chưa có quy trình hoàn tiền.");
@@ -442,7 +461,8 @@ public class BookingService {
                                 .findByBookingIdOrderByIdAsc(
                                                 id);
 
-                releaseSeats(items);
+                releaseSeats(
+                                items);
 
                 booking.setStatus(
                                 "CANCELLED");
@@ -458,18 +478,17 @@ public class BookingService {
         public void deleteBooking(
                         Long id,
                         String role) {
-                requireAdmin(role);
+                requireAdmin(
+                                role);
 
-                Booking booking = findBookingById(id);
+                Booking booking = findBookingById(
+                                id);
 
                 String status = normalizeStatus(
                                 booking.getStatus());
 
-                /*
-                 * Kể cả ADMIN cũng không được
-                 * xóa booking PAID.
-                 */
-                if ("PAID".equals(status)) {
+                if ("PAID".equals(
+                                status)) {
                         throw new ResponseStatusException(
                                         HttpStatus.CONFLICT,
                                         "Không được xóa booking đã thanh toán.");
@@ -479,18 +498,16 @@ public class BookingService {
                                 .findByBookingIdOrderByIdAsc(
                                                 id);
 
-                releaseSeats(items);
+                releaseSeats(
+                                items);
 
-                bookingItemRepository
-                                .deleteAll(items);
+                bookingItemRepository.deleteAll(
+                                items);
 
                 bookingRepository.delete(
                                 booking);
         }
 
-        /*
-         * Scheduler gọi mỗi phút.
-         */
         @Transactional
         public int expirePendingBookings() {
                 List<Booking> expiredBookings = bookingRepository
@@ -506,7 +523,8 @@ public class BookingService {
                                                 .findByBookingIdOrderByIdAsc(
                                                                 booking.getId());
 
-                                releaseSeats(items);
+                                releaseSeats(
+                                                items);
 
                                 booking.setStatus(
                                                 "EXPIRED");
@@ -516,10 +534,6 @@ public class BookingService {
 
                                 expiredCount++;
                         } catch (Exception exception) {
-                                /*
-                                 * Không dừng toàn bộ scheduler
-                                 * vì một booking lỗi.
-                                 */
                                 exception.printStackTrace();
                         }
                 }
@@ -537,13 +551,14 @@ public class BookingService {
                                         "Booking request is required");
                 }
 
-                if (request.getUserId() == null
-                                && currentUserId != null) {
+                if (request.getUserId() == null &&
+                                currentUserId != null) {
                         request.setUserId(
                                         currentUserId);
                 }
 
-                if (!isAdmin(role)) {
+                if (!isAdmin(
+                                role)) {
                         if (currentUserId == null) {
                                 throw new ResponseStatusException(
                                                 HttpStatus.UNAUTHORIZED,
@@ -570,17 +585,15 @@ public class BookingService {
                                         "eventId is required");
                 }
 
-                if (request.getSeatIds() == null
-                                || request
-                                                .getSeatIds()
+                if (request.getSeatIds() == null ||
+                                request.getSeatIds()
                                                 .isEmpty()) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "seatIds is required");
                 }
 
-                if (request
-                                .getSeatIds()
+                if (request.getSeatIds()
                                 .stream()
                                 .anyMatch(
                                                 Objects::isNull)) {
@@ -592,16 +605,14 @@ public class BookingService {
                 Set<Long> distinctSeatIds = new HashSet<>(
                                 request.getSeatIds());
 
-                if (distinctSeatIds.size() != request
-                                .getSeatIds()
+                if (distinctSeatIds.size() != request.getSeatIds()
                                 .size()) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "Danh sách ghế bị trùng.");
                 }
 
-                if (request
-                                .getSeatIds()
+                if (request.getSeatIds()
                                 .size() > MAX_TICKETS_PER_USER_PER_EVENT) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
@@ -618,12 +629,12 @@ public class BookingService {
                                                 userId,
                                                 eventId);
 
-                if (existingTicketCount
-                                + seatIds.size() > MAX_TICKETS_PER_USER_PER_EVENT) {
+                if (existingTicketCount +
+                                seatIds.size() > MAX_TICKETS_PER_USER_PER_EVENT) {
                         long remaining = Math.max(
                                         0,
-                                        MAX_TICKETS_PER_USER_PER_EVENT
-                                                        - existingTicketCount);
+                                        MAX_TICKETS_PER_USER_PER_EVENT -
+                                                        existingTicketCount);
 
                         throw new ResponseStatusException(
                                         HttpStatus.CONFLICT,
@@ -644,8 +655,8 @@ public class BookingService {
                         SeatDTO seat = getSeatFromService(
                                         seatId);
 
-                        if (seat.getEventId() == null
-                                        || !eventId.equals(
+                        if (seat.getEventId() == null ||
+                                        !eventId.equals(
                                                         seat.getEventId())) {
                                 throw new ResponseStatusException(
                                                 HttpStatus.BAD_REQUEST,
@@ -655,24 +666,24 @@ public class BookingService {
                                                                 + eventId);
                         }
 
-                        if (!"AVAILABLE"
-                                        .equalsIgnoreCase(
-                                                        seat.getStatus())) {
+                        if (!"AVAILABLE".equalsIgnoreCase(
+                                        seat.getStatus())) {
                                 throw new ResponseStatusException(
                                                 HttpStatus.CONFLICT,
                                                 "Seat not available: "
                                                                 + seatId);
                         }
 
-                        if (seat.getPrice() == null
-                                        || seat.getPrice() < 0) {
+                        if (seat.getPrice() == null ||
+                                        seat.getPrice() < 0) {
                                 throw new ResponseStatusException(
                                                 HttpStatus.BAD_REQUEST,
                                                 "Invalid seat price: "
                                                                 + seatId);
                         }
 
-                        result.add(seat);
+                        result.add(
+                                        seat);
                 }
 
                 return result;
@@ -770,8 +781,8 @@ public class BookingService {
                                         seatId,
                                         eventId);
                 } catch (FeignException exception) {
-                        if (exception.status() == 400
-                                        || exception.status() == 409) {
+                        if (exception.status() == 400 ||
+                                        exception.status() == 409) {
                                 throw new ResponseStatusException(
                                                 HttpStatus.CONFLICT,
                                                 "Seat has already been reserved: "
@@ -801,6 +812,7 @@ public class BookingService {
                                                 item.getSeatId(),
                                                 "RESERVED");
                         } catch (Exception ignored) {
+                                // Best-effort rollback.
                         }
                 }
         }
@@ -829,6 +841,7 @@ public class BookingService {
                                                 seatId,
                                                 "AVAILABLE");
                         } catch (Exception ignored) {
+                                // Best-effort rollback.
                         }
                 }
         }
@@ -836,6 +849,15 @@ public class BookingService {
         private void issueTickets(
                         Booking booking,
                         List<BookingItem> items) {
+                if (items == null ||
+                                items.isEmpty()) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "Booking does not contain any booking items");
+                }
+
+                List<TicketCreateRequest> requests = new ArrayList<>();
+
                 for (BookingItem item : items) {
                         SeatDTO seat = getSeatFromService(
                                         item.getSeatId());
@@ -855,15 +877,46 @@ public class BookingService {
                                         item.getSeatId());
 
                         request.setTicketType(
-                                        seat.getSeatType() == null
-                                                        ? "STANDARD"
-                                                        : seat.getSeatType());
+                                        seat.getSeatType() == null ||
+                                                        seat.getSeatType().isBlank()
+                                                                        ? "STANDARD"
+                                                                        : seat.getSeatType());
 
                         request.setPrice(
                                         item.getPrice());
 
-                        ticketClient.issueTicket(
+                        requests.add(
                                         request);
+                }
+
+                List<?> issuedTickets = ticketClient.issueTickets(
+                                requests,
+                                INTERNAL_ROLE);
+
+                if (issuedTickets == null) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.SERVICE_UNAVAILABLE,
+                                        "Ticket Service returned null response");
+                }
+
+                if (issuedTickets.size() != requests.size()) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.SERVICE_UNAVAILABLE,
+                                        "Ticket Service did not issue enough tickets. Expected: "
+                                                        + requests.size()
+                                                        + ", actual: "
+                                                        + issuedTickets.size());
+                }
+        }
+
+        private void rollbackIssuedTickets(
+                        Long bookingId) {
+                try {
+                        ticketClient.cancelTicketsByBooking(
+                                        bookingId,
+                                        INTERNAL_ROLE);
+                } catch (Exception ignored) {
+                        // Không che mất lỗi gốc.
                 }
         }
 
@@ -875,16 +928,12 @@ public class BookingService {
                                         booking.getUserId(),
                                         booking.getBookingCode(),
                                         booking.getTotalAmount(),
-                                        "Booking created successfully");
+                                        "Đơn đặt vé đã được tạo và đang chờ thanh toán.");
 
                         bookingEventProducer
                                         .sendBookingCreatedEvent(
                                                         event);
                 } catch (Exception exception) {
-                        /*
-                         * RabbitMQ lỗi không làm mất
-                         * booking vừa tạo.
-                         */
                         exception.printStackTrace();
                 }
         }
@@ -892,7 +941,8 @@ public class BookingService {
         private Booking findBookingById(
                         Long id) {
                 return bookingRepository
-                                .findById(id)
+                                .findById(
+                                                id)
                                 .orElseThrow(
                                                 () -> new ResponseStatusException(
                                                                 HttpStatus.NOT_FOUND,
@@ -904,12 +954,15 @@ public class BookingService {
                 String code;
 
                 do {
-                        code = "BK-"
-                                        + UUID
-                                                        .randomUUID()
+                        code = "BK-" +
+                                        UUID.randomUUID()
                                                         .toString()
-                                                        .replace("-", "")
-                                                        .substring(0, 12)
+                                                        .replace(
+                                                                        "-",
+                                                                        "")
+                                                        .substring(
+                                                                        0,
+                                                                        12)
                                                         .toUpperCase();
                 } while (bookingRepository
                                 .existsByBookingCode(
@@ -922,7 +975,8 @@ public class BookingService {
                         Long ownerUserId,
                         Long currentUserId,
                         String role) {
-                if (isAdmin(role)) {
+                if (isAdmin(
+                                role)) {
                         return;
                 }
 
@@ -942,7 +996,8 @@ public class BookingService {
 
         private void requireAdmin(
                         String role) {
-                if (!isAdmin(role)) {
+                if (!isAdmin(
+                                role)) {
                         throw new ResponseStatusException(
                                         HttpStatus.FORBIDDEN,
                                         "ADMIN role is required");
@@ -955,21 +1010,20 @@ public class BookingService {
                         return false;
                 }
 
-                String normalized = role
-                                .trim()
+                String normalized = role.trim()
                                 .toUpperCase();
 
                 return "ADMIN".equals(
-                                normalized)
-                                || "ROLE_ADMIN".equals(
+                                normalized) ||
+                                "ROLE_ADMIN".equals(
                                                 normalized);
         }
 
         private String normalizeOptionalStatus(
                         String status) {
-                if (status == null
-                                || status.isBlank()
-                                || "ALL".equalsIgnoreCase(
+                if (status == null ||
+                                status.isBlank() ||
+                                "ALL".equalsIgnoreCase(
                                                 status)) {
                         return null;
                 }
@@ -980,19 +1034,19 @@ public class BookingService {
 
         private String normalizeRequiredStatus(
                         String status) {
-                if (status == null
-                                || status.isBlank()) {
+                if (status == null ||
+                                status.isBlank()) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "status is required");
                 }
 
-                String normalized = status
-                                .trim()
+                String normalized = status.trim()
                                 .toUpperCase();
 
                 if (!ALLOWED_BOOKING_STATUSES
-                                .contains(normalized)) {
+                                .contains(
+                                                normalized)) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "Invalid booking status: "
@@ -1006,9 +1060,42 @@ public class BookingService {
                         String status) {
                 return status == null
                                 ? ""
-                                : status
-                                                .trim()
+                                : status.trim()
                                                 .toUpperCase();
+        }
+
+        private void validateStatusTransition(
+                        String currentStatus,
+                        String newStatus) {
+                if (!"PENDING".equals(
+                                currentStatus)) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.CONFLICT,
+                                        "Booking in status "
+                                                        + currentStatus
+                                                        + " cannot change to "
+                                                        + newStatus);
+                }
+
+                if ("PENDING".equals(
+                                newStatus)) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.CONFLICT,
+                                        "Cannot manually return booking to PENDING");
+                }
+        }
+
+        private void validateDateRange(
+                        LocalDateTime fromDate,
+                        LocalDateTime toDate) {
+                if (fromDate != null &&
+                                toDate != null &&
+                                fromDate.isAfter(
+                                                toDate)) {
+                        throw new ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "fromDate must be before or equal to toDate");
+                }
         }
 
         private void validatePage(
@@ -1020,8 +1107,8 @@ public class BookingService {
                                         "page must be greater than or equal to 0");
                 }
 
-                if (size < 1
-                                || size > 100) {
+                if (size < 1 ||
+                                size > 100) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "size must be between 1 and 100");
@@ -1031,23 +1118,23 @@ public class BookingService {
         private void validateAmountRange(
                         Double minAmount,
                         Double maxAmount) {
-                if (minAmount != null
-                                && minAmount < 0) {
+                if (minAmount != null &&
+                                minAmount < 0) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "minAmount cannot be negative");
                 }
 
-                if (maxAmount != null
-                                && maxAmount < 0) {
+                if (maxAmount != null &&
+                                maxAmount < 0) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "maxAmount cannot be negative");
                 }
 
-                if (minAmount != null
-                                && maxAmount != null
-                                && minAmount > maxAmount) {
+                if (minAmount != null &&
+                                maxAmount != null &&
+                                minAmount > maxAmount) {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST,
                                         "minAmount must be less than or equal to maxAmount");
@@ -1057,8 +1144,8 @@ public class BookingService {
         private Sort createSort(
                         String sortBy,
                         String sortDirection) {
-                String field = ALLOWED_SORT_FIELDS
-                                .contains(sortBy)
+                String field = ALLOWED_SORT_FIELDS.contains(
+                                sortBy)
                                                 ? sortBy
                                                 : "bookingDate";
 

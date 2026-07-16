@@ -5,8 +5,10 @@ import com.example.ticket_service.entity.Ticket;
 import com.example.ticket_service.service.TicketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -17,15 +19,9 @@ public class TicketController {
     private final TicketService ticketService;
 
     /*
-     * API dành cho Admin.
-     *
-     * /tickets?page=0&size=10
-     * /tickets?keyword=TKT
-     * /tickets?status=VALID
-     * /tickets?ticketType=VIP
-     * /tickets?userId=1
-     * /tickets?eventId=3
-     * /tickets?bookingId=1
+     * =====================================================
+     * ADMIN SEARCH
+     * =====================================================
      */
     @GetMapping
     public Page<Ticket> searchTickets(
@@ -47,6 +43,18 @@ public class TicketController {
             @RequestParam(required = false)
             String ticketType,
 
+            @RequestParam(required = false)
+            @DateTimeFormat(
+                    iso = DateTimeFormat.ISO.DATE_TIME
+            )
+            LocalDateTime fromDate,
+
+            @RequestParam(required = false)
+            @DateTimeFormat(
+                    iso = DateTimeFormat.ISO.DATE_TIME
+            )
+            LocalDateTime toDate,
+
             @RequestParam(defaultValue = "0")
             int page,
 
@@ -57,8 +65,18 @@ public class TicketController {
             String sortBy,
 
             @RequestParam(defaultValue = "desc")
-            String sortDirection
+            String sortDirection,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
+        ticketService.requireAdmin(
+                currentRole
+        );
+
         return ticketService.searchTickets(
                 keyword,
                 status,
@@ -66,6 +84,8 @@ public class TicketController {
                 eventId,
                 bookingId,
                 ticketType,
+                fromDate,
+                toDate,
                 page,
                 size,
                 sortBy,
@@ -74,11 +94,14 @@ public class TicketController {
     }
 
     /*
-     * API phân trang dành cho User.
+     * =====================================================
+     * USER TICKETS
+     * =====================================================
      */
     @GetMapping("/user/{userId}/page")
     public Page<Ticket> searchTicketsByUser(
-            @PathVariable Long userId,
+            @PathVariable
+            Long userId,
 
             @RequestParam(required = false)
             String keyword,
@@ -88,6 +111,12 @@ public class TicketController {
 
             @RequestParam(required = false)
             String ticketType,
+
+            @RequestParam(required = false)
+            Long eventId,
+
+            @RequestParam(required = false)
+            Long bookingId,
 
             @RequestParam(defaultValue = "0")
             int page,
@@ -99,26 +128,46 @@ public class TicketController {
             String sortBy,
 
             @RequestParam(defaultValue = "desc")
-            String sortDirection
+            String sortDirection,
+
+            @RequestHeader(
+                    value = "X-User-Id",
+                    required = false
+            )
+            Long currentUserId,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.searchTicketsByUser(
-                userId,
-                keyword,
-                status,
-                ticketType,
-                page,
-                size,
-                sortBy,
-                sortDirection
-        );
+        return ticketService
+                .searchTicketsByUser(
+                        userId,
+                        currentUserId,
+                        currentRole,
+                        keyword,
+                        status,
+                        ticketType,
+                        eventId,
+                        bookingId,
+                        page,
+                        size,
+                        sortBy,
+                        sortDirection
+                );
     }
 
     /*
-     * API phân trang theo Booking.
+     * =====================================================
+     * BOOKING TICKETS
+     * =====================================================
      */
     @GetMapping("/booking/{bookingId}/page")
     public Page<Ticket> searchTicketsByBooking(
-            @PathVariable Long bookingId,
+            @PathVariable
+            Long bookingId,
 
             @RequestParam(required = false)
             String keyword,
@@ -136,22 +185,43 @@ public class TicketController {
             String sortBy,
 
             @RequestParam(defaultValue = "desc")
-            String sortDirection
+            String sortDirection,
+
+            @RequestHeader(
+                    value = "X-User-Id",
+                    required = false
+            )
+            Long currentUserId,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.searchTicketsByBooking(
-                bookingId,
-                keyword,
-                status,
-                page,
-                size,
-                sortBy,
-                sortDirection
-        );
+        return ticketService
+                .searchTicketsByBooking(
+                        bookingId,
+                        currentUserId,
+                        currentRole,
+                        keyword,
+                        status,
+                        page,
+                        size,
+                        sortBy,
+                        sortDirection
+                );
     }
 
+    /*
+     * =====================================================
+     * EVENT TICKETS - ADMIN
+     * =====================================================
+     */
     @GetMapping("/event/{eventId}/page")
     public Page<Ticket> searchTicketsByEvent(
-            @PathVariable Long eventId,
+            @PathVariable
+            Long eventId,
 
             @RequestParam(required = false)
             String keyword,
@@ -172,120 +242,338 @@ public class TicketController {
             String sortBy,
 
             @RequestParam(defaultValue = "desc")
-            String sortDirection
+            String sortDirection,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.searchTicketsByEvent(
-                eventId,
-                keyword,
-                status,
-                ticketType,
-                page,
-                size,
-                sortBy,
-                sortDirection
+        ticketService.requireAdmin(
+                currentRole
         );
+
+        return ticketService
+                .searchTicketsByEvent(
+                        eventId,
+                        keyword,
+                        status,
+                        ticketType,
+                        page,
+                        size,
+                        sortBy,
+                        sortDirection
+                );
     }
 
     /*
-     * Các API List cũ được giữ lại để PaymentResult,
-     * BookingDetail và các trang cũ không bị lỗi.
+     * =====================================================
+     * LIST API CŨ
+     * =====================================================
      */
     @GetMapping("/event/{eventId}")
     public List<Ticket> getTicketsByEvent(
-            @PathVariable Long eventId
+            @PathVariable Long eventId,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.getTicketsByEvent(eventId);
+        ticketService.requireAdmin(
+                currentRole
+        );
+
+        return ticketService
+                .getTicketsByEvent(
+                        eventId
+                );
     }
 
     @GetMapping("/booking/{bookingId}")
     public List<Ticket> getTicketsByBooking(
-            @PathVariable Long bookingId
+            @PathVariable
+            Long bookingId,
+
+            @RequestHeader(
+                    value = "X-User-Id",
+                    required = false
+            )
+            Long currentUserId,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.getTicketsByBooking(bookingId);
+        return ticketService
+                .getTicketsByBookingAuthorized(
+                        bookingId,
+                        currentUserId,
+                        currentRole
+                );
     }
 
     @GetMapping("/user/{userId}")
     public List<Ticket> getTicketsByUser(
-            @PathVariable Long userId
+            @PathVariable
+            Long userId,
+
+            @RequestHeader(
+                    value = "X-User-Id",
+                    required = false
+            )
+            Long currentUserId,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.getTicketsByUser(userId);
+        return ticketService
+                .getTicketsByUserAuthorized(
+                        userId,
+                        currentUserId,
+                        currentRole
+                );
     }
 
+    /*
+     * =====================================================
+     * GET ONE
+     * =====================================================
+     */
     @GetMapping("/code/{ticketCode}")
     public Ticket getTicketByCode(
-            @PathVariable String ticketCode
+            @PathVariable
+            String ticketCode,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.getTicketByCode(ticketCode);
+        ticketService.requireAdmin(
+                currentRole
+        );
+
+        return ticketService
+                .getTicketByCode(
+                        ticketCode
+                );
     }
 
     @GetMapping("/{id}")
     public Ticket getTicketById(
-            @PathVariable Long id
+            @PathVariable
+            Long id,
+
+            @RequestHeader(
+                    value = "X-User-Id",
+                    required = false
+            )
+            Long currentUserId,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.getTicketById(id);
+        return ticketService
+                .getTicketByIdAuthorized(
+                        id,
+                        currentUserId,
+                        currentRole
+                );
     }
 
+    /*
+     * =====================================================
+     * INTERNAL / ADMIN WRITE
+     * =====================================================
+     */
     @PostMapping
     public Ticket createTicket(
-            @RequestBody Ticket ticket
+            @RequestBody
+            Ticket ticket,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.createTicket(ticket);
+        ticketService.requireAdmin(
+                currentRole
+        );
+
+        return ticketService
+                .createTicket(ticket);
     }
 
     @PostMapping("/issue")
     public Ticket issueTicket(
-            @RequestBody TicketCreateRequest request
+            @RequestBody
+            TicketCreateRequest request,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.issueTicket(request);
+        ticketService.requireAdmin(
+                currentRole
+        );
+
+        return ticketService
+                .issueTicket(request);
     }
 
     @PostMapping("/issue-batch")
     public List<Ticket> issueTickets(
-            @RequestBody List<TicketCreateRequest> requests
+            @RequestBody
+            List<TicketCreateRequest> requests,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.issueTickets(requests);
+        ticketService.requireAdmin(
+                currentRole
+        );
+
+        return ticketService
+                .issueTickets(requests);
     }
 
     @PutMapping("/{id}")
     public Ticket updateTicket(
-            @PathVariable Long id,
-            @RequestBody Ticket ticket
+            @PathVariable
+            Long id,
+
+            @RequestBody
+            Ticket ticket,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.updateTicket(id, ticket);
+        ticketService.requireAdmin(
+                currentRole
+        );
+
+        return ticketService
+                .updateTicket(
+                        id,
+                        ticket
+                );
     }
 
     @PutMapping("/{id}/use")
     public Ticket useTicket(
-            @PathVariable Long id
+            @PathVariable
+            Long id,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
+        ticketService.requireAdmin(
+                currentRole
+        );
+
         return ticketService.useTicket(id);
     }
 
     @PutMapping("/code/{ticketCode}/use")
     public Ticket useTicketByCode(
-            @PathVariable String ticketCode
+            @PathVariable
+            String ticketCode,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.useTicketByCode(ticketCode);
+        ticketService.requireAdmin(
+                currentRole
+        );
+
+        return ticketService
+                .useTicketByCode(
+                        ticketCode
+                );
     }
 
     @PutMapping("/{id}/regenerate-code")
     public Ticket regenerateTicketCode(
-            @PathVariable Long id
+            @PathVariable
+            Long id,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.regenerateTicketCode(id);
+        ticketService.requireAdmin(
+                currentRole
+        );
+
+        return ticketService
+                .regenerateTicketCode(id);
     }
 
     @PutMapping("/booking/{bookingId}/cancel")
     public List<Ticket> cancelTicketsByBooking(
-            @PathVariable Long bookingId
+            @PathVariable
+            Long bookingId,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
-        return ticketService.cancelTicketsByBooking(bookingId);
+        ticketService.requireAdmin(
+                currentRole
+        );
+
+        return ticketService
+                .cancelTicketsByBooking(
+                        bookingId
+                );
     }
 
     @DeleteMapping("/{id}")
     public void deleteTicket(
-            @PathVariable Long id
+            @PathVariable
+            Long id,
+
+            @RequestHeader(
+                    value = "X-User-Role",
+                    required = false
+            )
+            String currentRole
     ) {
+        ticketService.requireAdmin(
+                currentRole
+        );
+
         ticketService.deleteTicket(id);
     }
 }

@@ -3,8 +3,11 @@ import {
     useMemo,
     useState,
 } from "react";
+
 import { Link } from "react-router-dom";
+
 import axiosClient from "../api/axiosClient";
+
 import {
     ArrowRight,
     CalendarDays,
@@ -42,29 +45,45 @@ function normalizeList(data) {
 }
 
 function Home() {
-    const [events, setEvents] =
-        useState([]);
+    const [
+        events,
+        setEvents,
+    ] = useState([]);
 
-    const [categories, setCategories] =
-        useState([]);
+    const [
+        categories,
+        setCategories,
+    ] = useState([]);
 
-    const [loading, setLoading] =
-        useState(false);
+    const [
+        loading,
+        setLoading,
+    ] = useState(false);
 
-    const [error, setError] =
-        useState("");
+    const [
+        error,
+        setError,
+    ] = useState("");
 
-    const [keyword, setKeyword] =
-        useState("");
+    const [
+        keyword,
+        setKeyword,
+    ] = useState("");
 
-    const [bannerIndex, setBannerIndex] =
-        useState(0);
+    const [
+        bannerIndex,
+        setBannerIndex,
+    ] = useState(0);
 
     useEffect(() => {
         loadHomeData();
+
+        // eslint-disable-next-line
     }, []);
 
-    const getNumberValue = (value) => {
+    const getNumberValue = (
+        value
+    ) => {
         if (
             value === null ||
             value === undefined ||
@@ -73,17 +92,23 @@ function Home() {
             return null;
         }
 
-        const number = Number(value);
+        const number =
+            Number(value);
 
         return Number.isNaN(number)
             ? null
             : number;
     };
 
-    const normalizeText = (value) => {
+    const normalizeText = (
+        value
+    ) => {
         return String(value || "")
             .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
+            .replace(
+                /[\u0300-\u036f]/g,
+                ""
+            )
             .replace(/đ/g, "d")
             .replace(/Đ/g, "D")
             .trim()
@@ -97,7 +122,9 @@ function Home() {
             getNumberValue(
                 event?.minPrice
             ) ??
-            getNumberValue(event?.price) ??
+            getNumberValue(
+                event?.price
+            ) ??
             getNumberValue(
                 event?.ticketPrice
             ) ??
@@ -110,293 +137,396 @@ function Home() {
         );
     };
 
-    const getSeatPrice = (seat) => {
+    const getSeatPrice = (
+        seat
+    ) => {
         return (
-            getNumberValue(seat?.price) ??
+            getNumberValue(
+                seat?.price
+            ) ??
             getNumberValue(
                 seat?.ticketPrice
             ) ??
             getNumberValue(
                 seat?.seatPrice
             ) ??
-            getNumberValue(seat?.amount)
-        );
-    };
-
-    const loadCategories = async () => {
-        try {
-            const response =
-                await axiosClient.get(
-                    "/event-service/event-categories"
-                );
-
-            const data = normalizeList(
-                response.data
-            );
-
-            const activeCategories =
-                data.filter((category) => {
-                    const status = String(
-                        category.status ||
-                        "ACTIVE"
-                    ).toUpperCase();
-
-                    return (
-                        status === "ACTIVE"
-                    );
-                });
-
-            const categoryMap =
-                new Map();
-
-            activeCategories.forEach(
-                (category) => {
-                    const key =
-                        normalizeText(
-                            category.slug ||
-                            category.name ||
-                            category.id
-                        );
-
-                    if (
-                        !categoryMap.has(key)
-                    ) {
-                        categoryMap.set(
-                            key,
-                            category
-                        );
-                    }
-                }
-            );
-
-            return Array.from(
-                categoryMap.values()
-            );
-        } catch (error) {
-            console.error(
-                "Không tải được danh mục:",
-                error
-            );
-
-            return [];
-        }
-    };
-
-    const loadSeatsForEvent = async (
-        event
-    ) => {
-        let minPrice =
-            getDirectEventPrice(event);
-
-        let totalSeats = 0;
-        let availableSeats = 0;
-
-        try {
-            const response =
-                await axiosClient.get(
-                    `/seat-service/seats/event/${event.id}`
-                );
-
-            const seats = normalizeList(
-                response.data
-            );
-
-            const availableSeatList =
-                seats.filter((seat) => {
-                    return (
-                        String(
-                            seat.status || ""
-                        ).toUpperCase() ===
-                        "AVAILABLE"
-                    );
-                });
-
-            totalSeats = seats.length;
-            availableSeats =
-                availableSeatList.length;
-
-            const seatsForPrice =
-                availableSeatList.length > 0
-                    ? availableSeatList
-                    : seats;
-
-            const prices = seatsForPrice
-                .map((seat) =>
-                    getSeatPrice(seat)
-                )
-                .filter(
-                    (price) => price !== null
-                );
-
-            if (
-                minPrice === null &&
-                prices.length > 0
-            ) {
-                minPrice = Math.min(
-                    ...prices
-                );
-            }
-        } catch (error) {
-            console.warn(
-                `Không tải được ghế của event ${event.id}:`,
-                error
-            );
-        }
-
-        return {
-            ...event,
-            minPrice,
-            totalSeats,
-            availableSeats,
-        };
-    };
-
-    const loadEvents = async () => {
-        const response =
-            await axiosClient.get(
-                "/event-service/events",
-                {
-                    params: {
-                        page: 0,
-                        size: 100,
-                        sortBy:
-                            "eventDate",
-                        sortDirection:
-                            "asc",
-                    },
-                }
-            );
-
-        const eventData =
-            normalizeList(response.data);
-
-        const visibleEvents =
-            eventData.filter((event) => {
-                const status = String(
-                    event?.status ||
-                    "ACTIVE"
-                ).toUpperCase();
-
-                return ![
-                    "DRAFT",
-                    "INACTIVE",
-                    "CANCELLED",
-                ].includes(status);
-            });
-
-        return Promise.all(
-            visibleEvents.map(
-                loadSeatsForEvent
+            getNumberValue(
+                seat?.amount
             )
         );
     };
 
-    const loadHomeData = async () => {
-        try {
-            setLoading(true);
-            setError("");
+    const loadCategories =
+        async () => {
+            try {
+                const response =
+                    await axiosClient.get(
+                        "/event-service/event-categories",
+                        {
+                            params: {
+                                page: 0,
+                                size: 100,
+                                status:
+                                    "ACTIVE",
+                                sortBy:
+                                    "name",
+                                sortDirection:
+                                    "asc",
+                            },
+                        }
+                    );
 
-            const [
-                categoryData,
-                eventData,
-            ] = await Promise.all([
-                loadCategories(),
-                loadEvents(),
-            ]);
+                const data =
+                    normalizeList(
+                        response.data
+                    );
 
-            setCategories(categoryData);
-            setEvents(eventData);
-        } catch (error) {
-            console.error(
-                "Không tải được Home:",
-                error
+                const activeCategories =
+                    data.filter(
+                        (category) => {
+                            const status =
+                                String(
+                                    category.status ||
+                                    "ACTIVE"
+                                )
+                                    .trim()
+                                    .toUpperCase();
+
+                            return (
+                                status ===
+                                "ACTIVE"
+                            );
+                        }
+                    );
+
+                const categoryMap =
+                    new Map();
+
+                activeCategories.forEach(
+                    (category) => {
+                        const key =
+                            normalizeText(
+                                category.slug ||
+                                category.name ||
+                                category.id
+                            );
+
+                        if (
+                            !categoryMap.has(
+                                key
+                            )
+                        ) {
+                            categoryMap.set(
+                                key,
+                                category
+                            );
+                        }
+                    }
+                );
+
+                return Array.from(
+                    categoryMap.values()
+                );
+            } catch (
+            requestError
+            ) {
+                console.error(
+                    "Không tải được danh mục:",
+                    requestError
+                );
+
+                return [];
+            }
+        };
+
+    const loadSeatsForEvent =
+        async (event) => {
+            let minPrice =
+                getDirectEventPrice(
+                    event
+                );
+
+            let totalSeats =
+                getNumberValue(
+                    event?.totalSeats
+                ) ?? 0;
+
+            let availableSeats =
+                getNumberValue(
+                    event?.availableSeats
+                ) ?? 0;
+
+            try {
+                const response =
+                    await axiosClient.get(
+                        `/seat-service/seats/event/${event.id}`
+                    );
+
+                const seats =
+                    normalizeList(
+                        response.data
+                    );
+
+                const availableSeatList =
+                    seats.filter(
+                        (seat) =>
+                            String(
+                                seat.status ||
+                                ""
+                            )
+                                .trim()
+                                .toUpperCase() ===
+                            "AVAILABLE"
+                    );
+
+                totalSeats =
+                    seats.length;
+
+                availableSeats =
+                    availableSeatList.length;
+
+                const seatsForPrice =
+                    availableSeatList.length >
+                        0
+                        ? availableSeatList
+                        : seats;
+
+                const prices =
+                    seatsForPrice
+                        .map(
+                            (seat) =>
+                                getSeatPrice(
+                                    seat
+                                )
+                        )
+                        .filter(
+                            (price) =>
+                                price !==
+                                null
+                        );
+
+                if (
+                    minPrice === null &&
+                    prices.length > 0
+                ) {
+                    minPrice =
+                        Math.min(
+                            ...prices
+                        );
+                }
+            } catch (
+            requestError
+            ) {
+                console.warn(
+                    `Không tải được ghế của event ${event.id}:`,
+                    requestError
+                );
+            }
+
+            return {
+                ...event,
+                minPrice,
+                totalSeats,
+                availableSeats,
+            };
+        };
+
+    const loadEvents =
+        async () => {
+            const response =
+                await axiosClient.get(
+                    "/event-service/events",
+                    {
+                        params: {
+                            page: 0,
+                            size: 100,
+
+                            publicOnly:
+                                true,
+
+                            sortBy:
+                                "eventDate",
+
+                            sortDirection:
+                                "asc",
+                        },
+                    }
+                );
+
+            const eventData =
+                normalizeList(
+                    response.data
+                );
+
+            const visibleEvents =
+                eventData.filter(
+                    (event) => {
+                        const status =
+                            String(
+                                event?.status ||
+                                "ACTIVE"
+                            )
+                                .trim()
+                                .toUpperCase();
+
+                        return ![
+                            "DRAFT",
+                            "INACTIVE",
+                            "CANCELLED",
+                        ].includes(
+                            status
+                        );
+                    }
+                );
+
+            return Promise.all(
+                visibleEvents.map(
+                    loadSeatsForEvent
+                )
             );
+        };
 
-            setCategories([]);
-            setEvents([]);
+    const loadHomeData =
+        async () => {
+            try {
+                setLoading(true);
+                setError("");
 
-            setError(
-                error.response?.data
-                    ?.message ||
-                error.message ||
-                "Không tải được dữ liệu trang chủ."
+                const [
+                    categoryData,
+                    eventData,
+                ] =
+                    await Promise.all([
+                        loadCategories(),
+                        loadEvents(),
+                    ]);
+
+                setCategories(
+                    categoryData
+                );
+
+                setEvents(
+                    eventData
+                );
+            } catch (
+            requestError
+            ) {
+                console.error(
+                    "Không tải được Home:",
+                    requestError
+                );
+
+                setCategories([]);
+                setEvents([]);
+
+                setError(
+                    requestError
+                        ?.response
+                        ?.data
+                        ?.message ||
+                    requestError
+                        ?.message ||
+                    "Không tải được dữ liệu trang chủ."
+                );
+            } finally {
+                setLoading(false);
+            }
+        };
+
+    const getEventCategoryId =
+        (event) => {
+            return (
+                event?.categoryId ??
+                event?.eventCategoryId ??
+                event?.category_id ??
+                event?.category?.id ??
+                event
+                    ?.eventCategory
+                    ?.id ??
+                null
             );
-        } finally {
-            setLoading(false);
-        }
-    };
+        };
 
-    const getEventCategoryId = (
-        event
-    ) => {
-        return (
-            event?.categoryId ??
-            event?.eventCategoryId ??
-            event?.category_id ??
-            event?.category?.id ??
-            event?.eventCategory?.id ??
-            null
-        );
-    };
+    const getEventCategoryName =
+        (event) => {
+            if (
+                typeof event?.category ===
+                "string"
+            ) {
+                return event.category;
+            }
 
-    const getEventCategoryName = (
-        event
-    ) => {
-        if (
-            typeof event?.category ===
-            "string"
-        ) {
-            return event.category;
-        }
+            const directName =
+                event?.categoryName ??
+                event
+                    ?.eventCategoryName ??
+                event?.category?.name ??
+                event
+                    ?.eventCategory
+                    ?.name;
 
-        const directName =
-            event?.categoryName ??
-            event?.eventCategoryName ??
-            event?.category?.name ??
-            event?.eventCategory?.name;
+            if (directName) {
+                return directName;
+            }
 
-        if (directName) {
-            return directName;
-        }
+            const eventCategoryId =
+                getEventCategoryId(
+                    event
+                );
 
-        const eventCategoryId =
-            getEventCategoryId(event);
+            const matchedCategory =
+                categories.find(
+                    (category) =>
+                        Number(
+                            category.id
+                        ) ===
+                        Number(
+                            eventCategoryId
+                        )
+                );
 
-        const matchedCategory =
-            categories.find(
-                (category) =>
-                    Number(category.id) ===
-                    Number(eventCategoryId)
+            return (
+                matchedCategory?.name ||
+                ""
             );
+        };
 
-        return matchedCategory?.name || "";
-    };
+    const getEventCategorySlug =
+        (event) => {
+            const directSlug =
+                event?.categorySlug ??
+                event
+                    ?.eventCategorySlug ??
+                event?.category?.slug ??
+                event
+                    ?.eventCategory
+                    ?.slug;
 
-    const getEventCategorySlug = (
-        event
-    ) => {
-        const directSlug =
-            event?.categorySlug ??
-            event?.eventCategorySlug ??
-            event?.category?.slug ??
-            event?.eventCategory?.slug;
+            if (directSlug) {
+                return directSlug;
+            }
 
-        if (directSlug) {
-            return directSlug;
-        }
+            const eventCategoryId =
+                getEventCategoryId(
+                    event
+                );
 
-        const eventCategoryId =
-            getEventCategoryId(event);
+            const matchedCategory =
+                categories.find(
+                    (category) =>
+                        Number(
+                            category.id
+                        ) ===
+                        Number(
+                            eventCategoryId
+                        )
+                );
 
-        const matchedCategory =
-            categories.find(
-                (category) =>
-                    Number(category.id) ===
-                    Number(eventCategoryId)
+            return (
+                matchedCategory?.slug ||
+                ""
             );
-
-        return matchedCategory?.slug || "";
-    };
+        };
 
     const isSameCategory = (
         event,
@@ -407,33 +537,49 @@ function Home() {
         }
 
         const eventCategoryId =
-            getEventCategoryId(event);
+            getEventCategoryId(
+                event
+            );
 
         if (
-            eventCategoryId !== null &&
-            eventCategoryId !== undefined
+            eventCategoryId !==
+            null &&
+            eventCategoryId !==
+            undefined
         ) {
             return (
-                Number(eventCategoryId) ===
-                Number(category.id)
+                Number(
+                    eventCategoryId
+                ) ===
+                Number(
+                    category.id
+                )
             );
         }
 
         const eventCategoryName =
             normalizeText(
-                getEventCategoryName(event)
+                getEventCategoryName(
+                    event
+                )
             );
 
         const eventCategorySlug =
             normalizeText(
-                getEventCategorySlug(event)
+                getEventCategorySlug(
+                    event
+                )
             );
 
         const categoryName =
-            normalizeText(category.name);
+            normalizeText(
+                category.name
+            );
 
         const categorySlug =
-            normalizeText(category.slug);
+            normalizeText(
+                category.slug
+            );
 
         return (
             eventCategoryName ===
@@ -447,10 +593,12 @@ function Home() {
         );
     };
 
-    const filteredEvents = useMemo(
-        () => {
+    const filteredEvents =
+        useMemo(() => {
             const value =
-                normalizeText(keyword);
+                normalizeText(
+                    keyword
+                );
 
             if (!value) {
                 return events;
@@ -474,25 +622,30 @@ function Home() {
                             ].join(" ")
                         );
 
-                    return searchableText.includes(
-                        value
-                    );
+                    return searchableText
+                        .includes(
+                            value
+                        );
                 }
             );
-        },
-        [events, keyword, categories]
-    );
+        }, [
+            events,
+            keyword,
+            categories,
+        ]);
 
-    const bannerEvents = useMemo(
-        () => {
+    const bannerEvents =
+        useMemo(() => {
             const featuredEvents =
                 filteredEvents.filter(
                     (event) =>
-                        event.featured === true
+                        event.featured ===
+                        true
                 );
 
             if (
-                featuredEvents.length > 0
+                featuredEvents.length >
+                0
             ) {
                 return featuredEvents.slice(
                     0,
@@ -504,14 +657,13 @@ function Home() {
                 0,
                 8
             );
-        },
-        [filteredEvents]
-    );
+        }, [filteredEvents]);
 
-    const currentBanner = useMemo(
-        () => {
+    const currentBanner =
+        useMemo(() => {
             if (
-                bannerEvents.length === 0
+                bannerEvents.length ===
+                0
             ) {
                 return null;
             }
@@ -520,77 +672,101 @@ function Home() {
                 bannerIndex %
                 bannerEvents.length
             ];
-        },
-        [bannerEvents, bannerIndex]
-    );
+        }, [
+            bannerEvents,
+            bannerIndex,
+        ]);
 
     useEffect(() => {
         setBannerIndex(0);
-    }, [keyword, events.length]);
+    }, [
+        keyword,
+        events.length,
+    ]);
 
     useEffect(() => {
         if (
-            bannerEvents.length <= 1
+            bannerEvents.length <=
+            1
         ) {
             return undefined;
         }
 
-        const timer = setInterval(
-            () => {
-                setBannerIndex(
-                    (value) =>
-                        (value + 1) %
-                        bannerEvents.length
-                );
-            },
-            4500
-        );
+        const timer =
+            window.setInterval(
+                () => {
+                    setBannerIndex(
+                        (value) =>
+                            (
+                                value + 1
+                            ) %
+                            bannerEvents.length
+                    );
+                },
+                4500
+            );
 
-        return () => clearInterval(timer);
+        return () =>
+            window.clearInterval(
+                timer
+            );
     }, [bannerEvents.length]);
 
     const nextBanner = () => {
         if (
-            bannerEvents.length <= 1
+            bannerEvents.length <=
+            1
         ) {
             return;
         }
 
         setBannerIndex(
             (value) =>
-                (value + 1) %
+                (
+                    value + 1
+                ) %
                 bannerEvents.length
         );
     };
 
-    const previousBanner = () => {
-        if (
-            bannerEvents.length <= 1
-        ) {
-            return;
-        }
-
-        setBannerIndex((value) => {
-            if (value - 1 < 0) {
-                return (
-                    bannerEvents.length - 1
-                );
+    const previousBanner =
+        () => {
+            if (
+                bannerEvents.length <=
+                1
+            ) {
+                return;
             }
 
-            return value - 1;
-        });
-    };
+            setBannerIndex(
+                (value) => {
+                    if (
+                        value - 1 <
+                        0
+                    ) {
+                        return (
+                            bannerEvents.length -
+                            1
+                        );
+                    }
 
-    const hotEvents = useMemo(
-        () => {
+                    return value - 1;
+                }
+            );
+        };
+
+    const hotEvents =
+        useMemo(() => {
             const featuredEvents =
                 filteredEvents.filter(
                     (event) =>
-                        event.featured === true
+                        event.featured ===
+                        true
                 );
 
             if (
-                featuredEvents.length > 0
+                featuredEvents.length >
+                0
             ) {
                 return featuredEvents.slice(
                     0,
@@ -602,73 +778,89 @@ function Home() {
                 0,
                 8
             );
-        },
-        [filteredEvents]
-    );
+        }, [filteredEvents]);
 
-    const upcomingEvents = useMemo(
-        () => {
-            const now = new Date();
+    const upcomingEvents =
+        useMemo(() => {
+            const now =
+                new Date();
 
             return filteredEvents
-                .filter((event) => {
-                    if (!event.eventDate) {
-                        return false;
-                    }
+                .filter(
+                    (event) => {
+                        if (
+                            !event.eventDate
+                        ) {
+                            return false;
+                        }
 
-                    const eventDate =
-                        new Date(
-                            event.eventDate
+                        const eventDate =
+                            new Date(
+                                event.eventDate
+                            );
+
+                        return (
+                            !Number.isNaN(
+                                eventDate.getTime()
+                            ) &&
+                            eventDate >=
+                            now
                         );
-
-                    return (
-                        !Number.isNaN(
-                            eventDate.getTime()
-                        ) &&
-                        eventDate >= now
-                    );
-                })
+                    }
+                )
                 .sort(
-                    (a, b) =>
+                    (
+                        firstEvent,
+                        secondEvent
+                    ) =>
                         new Date(
-                            a.eventDate
-                        ) -
+                            firstEvent.eventDate
+                        ).getTime() -
                         new Date(
-                            b.eventDate
-                        )
+                            secondEvent.eventDate
+                        ).getTime()
                 )
                 .slice(0, 8);
-        },
-        [filteredEvents]
-    );
+        }, [filteredEvents]);
 
     const categoriesWithEvents =
         useMemo(() => {
             return categories
-                .map((category) => ({
-                    ...category,
-                    events:
-                        filteredEvents
-                            .filter(
-                                (event) =>
-                                    isSameCategory(
-                                        event,
-                                        category
-                                    )
-                            )
-                            .slice(0, 8),
-                }))
+                .map(
+                    (category) => ({
+                        ...category,
+
+                        events:
+                            filteredEvents
+                                .filter(
+                                    (
+                                        event
+                                    ) =>
+                                        isSameCategory(
+                                            event,
+                                            category
+                                        )
+                                )
+                                .slice(
+                                    0,
+                                    8
+                                ),
+                    })
+                )
                 .filter(
                     (category) =>
                         category.events
-                            .length > 0
+                            .length >
+                        0
                 );
         }, [
             categories,
             filteredEvents,
         ]);
 
-    const formatMoney = (value) => {
+    const formatMoney = (
+        value
+    ) => {
         const number =
             getNumberValue(value);
 
@@ -685,17 +877,24 @@ function Home() {
         )} đ`;
     };
 
-    const formatDate = (value) => {
+    const formatDate = (
+        value
+    ) => {
         if (!value) {
             return "Đang cập nhật";
         }
 
-        const date = new Date(value);
+        const date =
+            new Date(value);
 
         if (
-            Number.isNaN(date.getTime())
+            Number.isNaN(
+                date.getTime()
+            )
         ) {
-            return String(value).replace(
+            return String(
+                value
+            ).replace(
                 "T",
                 " "
             );
@@ -711,15 +910,20 @@ function Home() {
         );
     };
 
-    const formatTime = (value) => {
+    const formatTime = (
+        value
+    ) => {
         if (!value) {
             return "";
         }
 
-        const date = new Date(value);
+        const date =
+            new Date(value);
 
         if (
-            Number.isNaN(date.getTime())
+            Number.isNaN(
+                date.getTime()
+            )
         ) {
             return "";
         }
@@ -733,7 +937,9 @@ function Home() {
         );
     };
 
-    const getEventImage = (event) => {
+    const getEventImage = (
+        event
+    ) => {
         const image =
             event?.imageUrl ||
             event?.banner ||
@@ -745,91 +951,242 @@ function Home() {
             return "";
         }
 
+        const normalizedImage =
+            String(image).trim();
+
+        /*
+         * Ảnh đã có URL hoàn chỉnh từ
+         * website bên ngoài.
+         */
         if (
-            image.startsWith(
+            normalizedImage.startsWith(
+                "https://"
+            )
+        ) {
+            return normalizedImage;
+        }
+
+        /*
+         * URL ảnh đã đúng prefix proxy.
+         */
+        if (
+            normalizedImage.startsWith(
+                "/api/event-service/"
+            )
+        ) {
+            return normalizedImage;
+        }
+
+        /*
+         * Tránh tạo:
+         * /api/event-service/api/event-service/...
+         */
+        if (
+            normalizedImage.startsWith(
+                "api/event-service/"
+            )
+        ) {
+            return `/${normalizedImage}`;
+        }
+
+        /*
+         * Backend trả localhost Event Service.
+         */
+        if (
+            normalizedImage.startsWith(
                 "http://localhost:8084"
             )
         ) {
-            return image.replace(
+            return normalizedImage.replace(
                 "http://localhost:8084",
                 "/api/event-service"
             );
         }
 
+        /*
+         * Backend trả tên container Docker.
+         */
         if (
-            image.startsWith(
+            normalizedImage.startsWith(
                 "http://event-service:8084"
             )
         ) {
-            return image.replace(
+            return normalizedImage.replace(
                 "http://event-service:8084",
                 "/api/event-service"
             );
         }
 
+        /*
+         * Backend trả:
+         * /uploads/events/file.jpg
+         */
         if (
-            image.startsWith("/uploads/")
+            normalizedImage.startsWith(
+                "/uploads/"
+            )
         ) {
-            return `/api/event-service${image}`;
+            return `/api/event-service${normalizedImage}`;
         }
 
-        return image;
+        /*
+         * Backend trả:
+         * uploads/events/file.jpg
+         */
+        if (
+            normalizedImage.startsWith(
+                "uploads/"
+            )
+        ) {
+            return `/api/event-service/${normalizedImage}`;
+        }
+
+        /*
+         * Backend trả:
+         * events/file.jpg
+         */
+        if (
+            normalizedImage.startsWith(
+                "events/"
+            )
+        ) {
+            return `/api/event-service/uploads/${normalizedImage}`;
+        }
+
+        /*
+         * Các URL http khác giữ nguyên.
+         */
+        if (
+            normalizedImage.startsWith(
+                "http://"
+            )
+        ) {
+            return normalizedImage;
+        }
+
+        return normalizedImage;
     };
 
-    const getTicketBadge = (event) => {
-        const available = Number(
-            event.availableSeats || 0
-        );
+    const getTicketBadge = (
+        event
+    ) => {
+        const available =
+            Number(
+                event.availableSeats ||
+                0
+            );
 
-        const total = Number(
-            event.totalSeats || 0
-        );
+        const total =
+            Number(
+                event.totalSeats ||
+                0
+            );
 
-        const status = String(
-            event.status || "ACTIVE"
-        ).toUpperCase();
+        const ticketStatus =
+            String(
+                event.ticketStatus ||
+                ""
+            )
+                .trim()
+                .toUpperCase();
+
+        const status =
+            String(
+                event.status ||
+                "ACTIVE"
+            )
+                .trim()
+                .toUpperCase();
 
         if (
-            status === "SOLD_OUT" ||
-            (total > 0 &&
-                available === 0)
+            ticketStatus ===
+            "SOLD_OUT" ||
+            status ===
+            "SOLD_OUT" ||
+            (
+                total > 0 &&
+                available === 0
+            )
         ) {
             return {
                 text: "HẾT VÉ",
+
                 className:
                     "bg-red-500 text-white",
             };
         }
 
         if (
-            available > 0 &&
-            available <= 5
+            ticketStatus ===
+            "LOW" ||
+            (
+                available > 0 &&
+                available <= 5
+            )
         ) {
             return {
                 text: "CÒN ÍT VÉ",
+
                 className:
                     "bg-amber-400 text-slate-950",
             };
         }
 
         if (
-            status === "UPCOMING"
+            ticketStatus ===
+            "UPCOMING" ||
+            status ===
+            "UPCOMING"
         ) {
             return {
                 text: "SẮP MỞ",
+
                 className:
                     "bg-blue-400 text-slate-950",
             };
         }
 
+        if (
+            ticketStatus ===
+            "ENDED" ||
+            [
+                "CLOSED",
+                "COMPLETED",
+            ].includes(status)
+        ) {
+            return {
+                text:
+                    "ĐÃ KẾT THÚC",
+
+                className:
+                    "bg-slate-300 text-slate-800",
+            };
+        }
+
+        if (
+            ticketStatus ===
+            "NO_TICKETS" ||
+            total === 0
+        ) {
+            return {
+                text: "CHƯA CÓ VÉ",
+
+                className:
+                    "bg-slate-500 text-white",
+            };
+        }
+
         return {
             text: "ĐANG BÁN",
+
             className:
                 "bg-emerald-400 text-slate-950",
         };
     };
 
-    const EventCard = ({ event }) => {
+    const EventCard = ({
+        event,
+    }) => {
         const image =
             getEventImage(event);
 
@@ -839,17 +1196,33 @@ function Home() {
         return (
             <Link
                 to={`/events/${event.id}`}
-                className="group block overflow-hidden rounded-[22px] bg-[#1f232b] border border-white/10 hover:border-emerald-400/70 hover:-translate-y-1 transition"
+                className="group block overflow-hidden rounded-[22px] border border-white/10 bg-[#1f232b] transition hover:-translate-y-1 hover:border-emerald-400/70"
             >
-                <div className="relative h-52 bg-linear-to-br from-emerald-500 to-cyan-500 overflow-hidden">
+                <div className="relative h-52 overflow-hidden bg-linear-to-br from-emerald-500 to-cyan-500">
                     {image ? (
                         <img
                             src={image}
-                            alt={event.name}
-                            className="h-full w-full object-cover group-hover:scale-105 transition duration-500"
+                            alt={
+                                event.name
+                            }
+                            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                            onError={(
+                                imageEvent
+                            ) => {
+                                console.error(
+                                    "Không tải được ảnh:",
+                                    image
+                                );
+
+                                imageEvent
+                                    .currentTarget
+                                    .style
+                                    .display =
+                                    "none";
+                            }}
                         />
                     ) : (
-                        <div className="h-full w-full flex items-center justify-center">
+                        <div className="flex h-full w-full items-center justify-center">
                             <Ticket
                                 size={54}
                             />
@@ -858,21 +1231,21 @@ function Home() {
 
                     <div className="absolute inset-x-0 bottom-0 h-28 bg-linear-to-t from-black/80 to-transparent" />
 
-                    <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-black/65 text-xs font-black">
+                    <div className="absolute left-3 top-3 rounded-full bg-black/65 px-3 py-1 text-xs font-black">
                         {getEventCategoryName(
                             event
                         ) || "EVENT"}
                     </div>
 
                     <div
-                        className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-black ${badge.className}`}
+                        className={`absolute right-3 top-3 rounded-full px-3 py-1 text-xs font-black ${badge.className}`}
                     >
                         {badge.text}
                     </div>
                 </div>
 
                 <div className="p-4">
-                    <h3 className="font-black line-clamp-2 min-h-12 group-hover:text-emerald-300">
+                    <h3 className="line-clamp-2 min-h-12 font-black group-hover:text-emerald-300">
                         {event.name ||
                             `Event #${event.id}`}
                     </h3>
@@ -881,7 +1254,7 @@ function Home() {
                         <div className="flex items-center gap-2">
                             <CalendarDays
                                 size={15}
-                                className="text-emerald-400"
+                                className="shrink-0 text-emerald-400"
                             />
 
                             <span className="line-clamp-1">
@@ -897,7 +1270,7 @@ function Home() {
                         <div className="flex items-center gap-2">
                             <MapPin
                                 size={15}
-                                className="text-emerald-400"
+                                className="shrink-0 text-emerald-400"
                             />
 
                             <span className="line-clamp-1">
@@ -909,37 +1282,39 @@ function Home() {
                         <div className="flex items-center gap-2">
                             <Users
                                 size={15}
-                                className="text-emerald-400"
+                                className="shrink-0 text-emerald-400"
                             />
 
                             <span>
                                 Còn{" "}
-                                {
-                                    event.availableSeats
-                                }{" "}
+                                {Number(
+                                    event.availableSeats ||
+                                    0
+                                )}{" "}
                                 /{" "}
-                                {
-                                    event.totalSeats
-                                }{" "}
+                                {Number(
+                                    event.totalSeats ||
+                                    0
+                                )}{" "}
                                 vé
                             </span>
                         </div>
                     </div>
 
-                    <div className="mt-5 pt-4 border-t border-white/10 flex items-end justify-between gap-3">
+                    <div className="mt-5 flex items-end justify-between gap-3 border-t border-white/10 pt-4">
                         <div>
                             <div className="text-xs text-slate-500">
                                 Giá từ
                             </div>
 
-                            <div className="font-black text-lg text-emerald-400">
+                            <div className="text-lg font-black text-emerald-400">
                                 {formatMoney(
                                     event.minPrice
                                 )}
                             </div>
                         </div>
 
-                        <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-emerald-500">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 group-hover:bg-emerald-500">
                             <ArrowRight
                                 size={18}
                             />
@@ -957,30 +1332,32 @@ function Home() {
         eventList,
     }) => {
         return (
-            <section className="max-w-7xl mx-auto px-4 lg:px-6 py-9">
-                <div className="flex items-end justify-between gap-4 mb-5">
+            <section className="mx-auto max-w-7xl px-4 py-9 lg:px-6">
+                <div className="mb-5 flex items-end justify-between gap-4">
                     <div>
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-400/10 text-emerald-300 text-xs font-black mb-3">
+                        <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-emerald-400/10 px-3 py-1 text-xs font-black text-emerald-300">
                             <Sparkles
                                 size={14}
                             />
+
                             {badge}
                         </div>
 
-                        <h2 className="text-2xl md:text-3xl font-black">
+                        <h2 className="text-2xl font-black md:text-3xl">
                             {title}
                         </h2>
 
-                        <p className="text-slate-400 mt-2">
+                        <p className="mt-2 text-slate-400">
                             {description}
                         </p>
                     </div>
 
                     <Link
                         to="/events"
-                        className="hidden sm:inline-flex items-center gap-2 text-emerald-400 font-black"
+                        className="hidden items-center gap-2 font-black text-emerald-400 sm:inline-flex"
                     >
                         Xem tất cả
+
                         <ArrowRight
                             size={18}
                         />
@@ -988,17 +1365,16 @@ function Home() {
                 </div>
 
                 {loading ? (
-                    <div className="rounded-[28px] bg-white/8 border border-white/10 p-10 text-center text-slate-300">
+                    <div className="rounded-[28px] border border-white/10 bg-white/5 p-10 text-center text-slate-300">
                         Đang tải sự kiện...
                     </div>
                 ) : eventList.length ===
                     0 ? (
-                    <div className="rounded-[28px] bg-white/8 border border-white/10 p-10 text-center text-slate-300">
-                        Chưa có sự kiện để
-                        hiển thị.
+                    <div className="rounded-[28px] border border-white/10 bg-white/5 p-10 text-center text-slate-300">
+                        Chưa có sự kiện để hiển thị.
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
                         {eventList.map(
                             (event) => (
                                 <EventCard
@@ -1026,12 +1402,12 @@ function Home() {
 
     return (
         <div className="min-h-screen bg-[#111317] text-white">
-            <section className="sticky top-0 z-30 bg-[#111317]/95 backdrop-blur border-b border-white/10">
-                <div className="max-w-7xl mx-auto px-4 lg:px-6">
+            <section className="sticky top-0 z-30 border-b border-white/10 bg-[#111317]/95 backdrop-blur">
+                <div className="mx-auto max-w-7xl px-4 lg:px-6">
                     <div className="flex items-center gap-3 overflow-x-auto py-4">
                         <Link
                             to="/events"
-                            className="shrink-0 px-4 py-2 rounded-full bg-emerald-500 text-sm font-black"
+                            className="shrink-0 rounded-full bg-emerald-500 px-4 py-2 text-sm font-black text-slate-950"
                         >
                             Tất cả
                         </Link>
@@ -1043,7 +1419,7 @@ function Home() {
                                         category.id
                                     }
                                     to={`/events?categoryId=${category.id}`}
-                                    className="shrink-0 px-4 py-2 rounded-full bg-white/8 border border-white/10 text-sm font-bold hover:bg-white/15"
+                                    className="shrink-0 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold hover:bg-white/15"
                                 >
                                     {
                                         category.name
@@ -1058,27 +1434,25 @@ function Home() {
             <section className="relative overflow-hidden bg-[#08090b]">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,#10b98133,transparent_35%),radial-gradient(circle_at_bottom_right,#06b6d433,transparent_35%)]" />
 
-                <div className="relative max-w-7xl mx-auto px-4 lg:px-6 py-8 lg:py-10">
+                <div className="relative mx-auto max-w-7xl px-4 py-8 lg:px-6 lg:py-10">
                     {error && (
-                        <div className="mb-6 bg-red-500/10 border border-red-500/20 text-red-300 rounded-3xl p-5">
+                        <div className="mb-6 rounded-3xl border border-red-500/20 bg-red-500/10 p-5 text-red-300">
                             {error}
                         </div>
                     )}
 
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
                         <div className="lg:col-span-8">
                             {loading ? (
-                                <div className="h-107.5 rounded-4xl bg-white/10 border border-white/10 flex items-center justify-center">
-                                    Đang tải sự kiện
-                                    nổi bật...
+                                <div className="flex min-h-107.5 items-center justify-center rounded-[34px] border border-white/10 bg-white/10">
+                                    Đang tải sự kiện nổi bật...
                                 </div>
                             ) : !currentBanner ? (
-                                <div className="h-107.5 rounded-4xl bg-white/10 border border-white/10 flex items-center justify-center">
-                                    Chưa có sự kiện
-                                    để hiển thị.
+                                <div className="flex min-h-107.5 items-center justify-center rounded-[34px] border border-white/10 bg-white/10">
+                                    Chưa có sự kiện để hiển thị.
                                 </div>
                             ) : (
-                                <div className="group relative h-107.5 rounded-4xl overflow-hidden bg-linear-to-br from-emerald-500 to-cyan-500">
+                                <div className="group relative min-h-107.5 overflow-hidden rounded-[34px] bg-linear-to-br from-emerald-500 to-cyan-500">
                                     {bannerImage ? (
                                         <img
                                             src={
@@ -1087,14 +1461,26 @@ function Home() {
                                             alt={
                                                 currentBanner.name
                                             }
-                                            className="absolute inset-0 h-full w-full object-cover group-hover:scale-105 transition duration-700"
+                                            className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                                            onError={(
+                                                imageEvent
+                                            ) => {
+                                                console.error(
+                                                    "Không tải được banner:",
+                                                    bannerImage
+                                                );
+
+                                                imageEvent
+                                                    .currentTarget
+                                                    .style
+                                                    .display =
+                                                    "none";
+                                            }}
                                         />
                                     ) : (
                                         <div className="absolute inset-0 flex items-center justify-center">
                                             <Ticket
-                                                size={
-                                                    96
-                                                }
+                                                size={96}
                                             />
                                         </div>
                                     )}
@@ -1107,29 +1493,25 @@ function Home() {
                                         to={`/events/${currentBanner.id}`}
                                         className="absolute inset-0"
                                     >
-                                        <div className="absolute left-6 right-6 bottom-7 md:left-9 md:right-9 md:bottom-9 max-w-3xl">
-                                            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-400 text-slate-950 text-sm font-black mb-4">
+                                        <div className="absolute bottom-7 left-6 right-6 max-w-3xl md:bottom-9 md:left-9 md:right-9">
+                                            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-emerald-400 px-4 py-2 text-sm font-black text-slate-950">
                                                 <Sparkles
-                                                    size={
-                                                        16
-                                                    }
+                                                    size={16}
                                                 />
-                                                Sự kiện
-                                                nổi bật
+
+                                                Sự kiện nổi bật
                                             </div>
 
-                                            <h1 className="text-3xl md:text-5xl font-black leading-tight line-clamp-2">
+                                            <h1 className="line-clamp-2 text-3xl font-black leading-tight md:text-5xl">
                                                 {
                                                     currentBanner.name
                                                 }
                                             </h1>
 
-                                            <div className="flex flex-wrap gap-4 text-slate-200 mt-4">
+                                            <div className="mt-4 flex flex-wrap gap-4 text-slate-200">
                                                 <span className="inline-flex items-center gap-2">
                                                     <CalendarDays
-                                                        size={
-                                                            18
-                                                        }
+                                                        size={18}
                                                     />
 
                                                     {formatTime(
@@ -1142,9 +1524,7 @@ function Home() {
 
                                                 <span className="inline-flex items-center gap-2">
                                                     <MapPin
-                                                        size={
-                                                            18
-                                                        }
+                                                        size={18}
                                                     />
 
                                                     {currentBanner.location ||
@@ -1152,23 +1532,19 @@ function Home() {
                                                 </span>
                                             </div>
 
-                                            <div className="flex flex-wrap items-center gap-4 mt-6">
-                                                <div className="px-5 py-3 rounded-2xl bg-white text-slate-950 font-black">
-                                                    Vé
-                                                    từ{" "}
+                                            <div className="mt-6 flex flex-wrap items-center gap-4">
+                                                <div className="rounded-2xl bg-white px-5 py-3 font-black text-slate-950">
+                                                    Vé từ{" "}
                                                     {formatMoney(
                                                         currentBanner.minPrice
                                                     )}
                                                 </div>
 
-                                                <div className="inline-flex items-center gap-2 text-emerald-300 font-black">
-                                                    Xem
-                                                    chi
-                                                    tiết
+                                                <div className="inline-flex items-center gap-2 font-black text-emerald-300">
+                                                    Xem chi tiết
+
                                                     <ArrowRight
-                                                        size={
-                                                            19
-                                                        }
+                                                        size={19}
                                                     />
                                                 </div>
                                             </div>
@@ -1183,12 +1559,10 @@ function Home() {
                                                     onClick={
                                                         previousBanner
                                                     }
-                                                    className="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-black/50 items-center justify-center z-10"
+                                                    className="absolute left-4 top-1/2 z-10 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 md:flex"
                                                 >
                                                     <ChevronLeft
-                                                        size={
-                                                            24
-                                                        }
+                                                        size={24}
                                                     />
                                                 </button>
 
@@ -1197,12 +1571,10 @@ function Home() {
                                                     onClick={
                                                         nextBanner
                                                     }
-                                                    className="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-black/50 items-center justify-center z-10"
+                                                    className="absolute right-4 top-1/2 z-10 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 md:flex"
                                                 >
                                                     <ChevronRight
-                                                        size={
-                                                            24
-                                                        }
+                                                        size={24}
                                                     />
                                                 </button>
                                             </>
@@ -1211,18 +1583,16 @@ function Home() {
                             )}
                         </div>
 
-                        <div className="lg:col-span-4 space-y-5">
-                            <div className="rounded-[28px] bg-[#1b1f27] border border-white/10 p-5">
-                                <div className="text-sm text-emerald-300 font-black mb-3">
+                        <div className="space-y-5 lg:col-span-4">
+                            <div className="rounded-[28px] border border-white/10 bg-[#1b1f27] p-5">
+                                <div className="mb-3 text-sm font-black text-emerald-300">
                                     TÌM SỰ KIỆN
                                 </div>
 
-                                <div className="bg-white rounded-2xl p-2 flex items-center gap-2">
-                                    <div className="flex items-center gap-3 px-3 flex-1">
+                                <div className="flex items-center gap-2 rounded-2xl bg-white p-2">
+                                    <div className="flex min-w-0 flex-1 items-center gap-3 px-3">
                                         <Search
-                                            size={
-                                                20
-                                            }
+                                            size={20}
                                             className="text-slate-400"
                                         />
 
@@ -1240,7 +1610,7 @@ function Home() {
                                                 )
                                             }
                                             placeholder="Bạn tìm gì hôm nay?"
-                                            className="outline-none text-slate-900 flex-1 h-12 min-w-0"
+                                            className="h-12 min-w-0 flex-1 text-slate-900 outline-none"
                                         />
                                     </div>
 
@@ -1252,119 +1622,77 @@ function Home() {
                                                 )}`
                                                 : "/events"
                                         }
-                                        className="h-12 px-4 rounded-xl bg-emerald-500 flex items-center justify-center"
+                                        className="flex h-12 items-center justify-center rounded-xl bg-emerald-500 px-4 text-slate-950"
                                     >
                                         <Search
-                                            size={
-                                                18
-                                            }
+                                            size={18}
                                         />
                                     </Link>
                                 </div>
                             </div>
 
-                            <div className="rounded-[28px] bg-[#1b1f27] border border-white/10 p-5">
-                                <h2 className="text-xl font-black mb-4">
+                            <div className="rounded-[28px] border border-white/10 bg-[#1b1f27] p-5">
+                                <h2 className="mb-4 text-xl font-black">
                                     Khám phá nhanh
                                 </h2>
 
                                 <div className="grid grid-cols-2 gap-3">
-                                    <Link
+                                    <QuickLink
                                         to="/events"
-                                        className="rounded-2xl bg-white/8 border border-white/10 p-4"
-                                    >
-                                        <Ticket
-                                            className="text-emerald-400"
-                                            size={
-                                                24
-                                            }
-                                        />
+                                        icon={Ticket}
+                                        label="Mua vé"
+                                    />
 
-                                        <div className="font-black mt-3">
-                                            Mua vé
-                                        </div>
-                                    </Link>
-
-                                    <Link
+                                    <QuickLink
                                         to="/my-bookings"
-                                        className="rounded-2xl bg-white/8 border border-white/10 p-4"
-                                    >
-                                        <Clock
-                                            className="text-emerald-400"
-                                            size={
-                                                24
-                                            }
-                                        />
+                                        icon={Clock}
+                                        label="Booking"
+                                    />
 
-                                        <div className="font-black mt-3">
-                                            Booking
-                                        </div>
-                                    </Link>
-
-                                    <Link
+                                    <QuickLink
                                         to="/my-tickets"
-                                        className="rounded-2xl bg-white/8 border border-white/10 p-4"
-                                    >
-                                        <QrCode
-                                            className="text-emerald-400"
-                                            size={
-                                                24
-                                            }
-                                        />
+                                        icon={QrCode}
+                                        label="Vé QR"
+                                    />
 
-                                        <div className="font-black mt-3">
-                                            Vé QR
-                                        </div>
-                                    </Link>
-
-                                    <Link
+                                    <QuickLink
                                         to="/profile"
-                                        className="rounded-2xl bg-white/8 border border-white/10 p-4"
-                                    >
-                                        <Users
-                                            className="text-emerald-400"
-                                            size={
-                                                24
-                                            }
-                                        />
-
-                                        <div className="font-black mt-3">
-                                            Tài
-                                            khoản
-                                        </div>
-                                    </Link>
+                                        icon={Users}
+                                        label="Tài khoản"
+                                    />
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {bannerEvents.length > 1 && (
-                        <div className="flex justify-center gap-2 mt-6">
-                            {bannerEvents.map(
-                                (
-                                    event,
-                                    index
-                                ) => (
-                                    <button
-                                        key={
-                                            event.id
-                                        }
-                                        type="button"
-                                        onClick={() =>
-                                            setBannerIndex(
-                                                index
-                                            )
-                                        }
-                                        className={`h-2.5 rounded-full transition ${index ===
-                                            bannerIndex
-                                            ? "w-10 bg-emerald-400"
-                                            : "w-2.5 bg-white/40"
-                                            }`}
-                                    />
-                                )
-                            )}
-                        </div>
-                    )}
+                    {bannerEvents.length >
+                        1 && (
+                            <div className="mt-6 flex justify-center gap-2">
+                                {bannerEvents.map(
+                                    (
+                                        event,
+                                        index
+                                    ) => (
+                                        <button
+                                            key={
+                                                event.id
+                                            }
+                                            type="button"
+                                            onClick={() =>
+                                                setBannerIndex(
+                                                    index
+                                                )
+                                            }
+                                            className={`h-2.5 rounded-full transition ${index ===
+                                                bannerIndex
+                                                ? "w-10 bg-emerald-400"
+                                                : "w-2.5 bg-white/40"
+                                                }`}
+                                        />
+                                    )
+                                )}
+                            </div>
+                        )}
                 </div>
             </section>
 
@@ -1379,12 +1707,14 @@ function Home() {
                 badge="LỊCH SỰ KIỆN"
                 title="Sự kiện sắp diễn ra"
                 description="Các sự kiện gần ngày tổ chức nhất."
-                eventList={upcomingEvents}
+                eventList={
+                    upcomingEvents
+                }
             />
 
             {loading ? (
-                <section className="max-w-7xl mx-auto px-4 lg:px-6 py-8">
-                    <div className="bg-white/8 border border-white/10 rounded-[28px] p-10 text-center">
+                <section className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
+                    <div className="rounded-[28px] border border-white/10 bg-white/5 p-10 text-center">
                         Đang tải danh mục...
                     </div>
                 </section>
@@ -1395,26 +1725,25 @@ function Home() {
                             key={
                                 category.id
                             }
-                            className="max-w-7xl mx-auto px-4 lg:px-6 py-9"
+                            className="mx-auto max-w-7xl px-4 py-9 lg:px-6"
                         >
-                            <div className="flex items-end justify-between gap-4 mb-5">
+                            <div className="mb-5 flex items-end justify-between gap-4">
                                 <div>
-                                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-400/10 text-emerald-300 text-xs font-black mb-3">
+                                    <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-emerald-400/10 px-3 py-1 text-xs font-black text-emerald-300">
                                         <Sparkles
-                                            size={
-                                                14
-                                            }
+                                            size={14}
                                         />
+
                                         DANH MỤC
                                     </div>
 
-                                    <h2 className="text-2xl md:text-3xl font-black">
+                                    <h2 className="text-2xl font-black md:text-3xl">
                                         {
                                             category.name
                                         }
                                     </h2>
 
-                                    <p className="text-slate-400 mt-2">
+                                    <p className="mt-2 text-slate-400">
                                         {category.description ||
                                             "Các sự kiện đang mở bán vé"}
                                     </p>
@@ -1422,18 +1751,17 @@ function Home() {
 
                                 <Link
                                     to={`/events?categoryId=${category.id}`}
-                                    className="hidden sm:inline-flex items-center gap-2 text-emerald-400 font-black"
+                                    className="hidden items-center gap-2 font-black text-emerald-400 sm:inline-flex"
                                 >
                                     Xem thêm
+
                                     <ArrowRight
-                                        size={
-                                            18
-                                        }
+                                        size={18}
                                     />
                                 </Link>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
                                 {category.events.map(
                                     (event) => (
                                         <EventCard
@@ -1452,94 +1780,102 @@ function Home() {
                 )
             )}
 
-            <section className="max-w-7xl mx-auto px-4 lg:px-6 py-12">
-                <div className="rounded-4xl bg-linear-to-br from-[#1b1f27] to-[#101216] border border-white/10 p-6 md:p-9">
+            <section className="mx-auto max-w-7xl px-4 py-12 lg:px-6">
+                <div className="rounded-[34px] border border-white/10 bg-linear-to-br from-[#1b1f27] to-[#101216] p-6 md:p-9">
                     <div className="mb-7">
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-400/10 text-emerald-300 text-xs font-black mb-3">
+                        <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-emerald-400/10 px-3 py-1 text-xs font-black text-emerald-300">
                             <ShieldCheck
                                 size={14}
                             />
+
                             EVENT PLATFORM
                         </div>
 
-                        <h2 className="text-2xl md:text-3xl font-black">
-                            Vì sao chọn chúng
-                            tôi?
+                        <h2 className="text-2xl font-black md:text-3xl">
+                            Vì sao chọn chúng tôi?
                         </h2>
 
-                        <p className="text-slate-400 mt-2">
-                            Hỗ trợ đặt vé, chọn
-                            ghế, thanh toán và
-                            phát hành vé QR.
+                        <p className="mt-2 text-slate-400">
+                            Hỗ trợ đặt vé, chọn ghế,
+                            thanh toán và phát hành vé QR.
                         </p>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {[
-                            {
-                                icon: Ticket,
-                                title:
-                                    "Chọn vé nhanh",
-                                text:
-                                    "Xem sự kiện và chọn ghế còn trống.",
-                            },
-                            {
-                                icon: CreditCard,
-                                title:
-                                    "Thanh toán VNPay",
-                                text:
-                                    "Thanh toán trực tuyến rõ ràng.",
-                            },
-                            {
-                                icon: QrCode,
-                                title:
-                                    "Nhận vé QR",
-                                text:
-                                    "Nhận mã QR sau khi thanh toán.",
-                            },
-                            {
-                                icon: ShieldCheck,
-                                title:
-                                    "An toàn",
-                                text:
-                                    "Giảm rủi ro bán trùng ghế.",
-                            },
-                        ].map((item) => {
-                            const Icon =
-                                item.icon;
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <FeatureCard
+                            icon={Ticket}
+                            title="Chọn vé nhanh"
+                            description="Xem sự kiện và chọn ghế còn trống."
+                        />
 
-                            return (
-                                <div
-                                    key={
-                                        item.title
-                                    }
-                                    className="rounded-3xl bg-white/6 border border-white/10 p-5"
-                                >
-                                    <div className="h-12 w-12 rounded-2xl bg-emerald-400/15 text-emerald-300 flex items-center justify-center">
-                                        <Icon
-                                            size={
-                                                25
-                                            }
-                                        />
-                                    </div>
+                        <FeatureCard
+                            icon={
+                                CreditCard
+                            }
+                            title="Thanh toán VNPay"
+                            description="Thanh toán trực tuyến rõ ràng."
+                        />
 
-                                    <h3 className="font-black mt-5">
-                                        {
-                                            item.title
-                                        }
-                                    </h3>
+                        <FeatureCard
+                            icon={QrCode}
+                            title="Nhận vé QR"
+                            description="Nhận mã QR sau khi thanh toán."
+                        />
 
-                                    <p className="text-sm text-slate-400 mt-2 leading-6">
-                                        {
-                                            item.text
-                                        }
-                                    </p>
-                                </div>
-                            );
-                        })}
+                        <FeatureCard
+                            icon={
+                                ShieldCheck
+                            }
+                            title="An toàn"
+                            description="Giảm rủi ro bán trùng ghế."
+                        />
                     </div>
                 </div>
             </section>
+        </div>
+    );
+}
+
+function QuickLink({
+    to,
+    icon: Icon,
+    label,
+}) {
+    return (
+        <Link
+            to={to}
+            className="rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:border-emerald-500/40 hover:bg-white/10"
+        >
+            <Icon
+                className="text-emerald-400"
+                size={24}
+            />
+
+            <div className="mt-3 font-black">
+                {label}
+            </div>
+        </Link>
+    );
+}
+
+function FeatureCard({
+    icon: Icon,
+    title,
+    description,
+}) {
+    return (
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-400/15 text-emerald-300">
+                <Icon size={25} />
+            </div>
+
+            <h3 className="mt-5 font-black">
+                {title}
+            </h3>
+
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+                {description}
+            </p>
         </div>
     );
 }

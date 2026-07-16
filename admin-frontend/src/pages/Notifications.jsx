@@ -4,12 +4,9 @@ import {
 } from "react";
 
 import EntityManager from "../components/EntityManager";
-import axiosClient from "../api/axiosClient";
 
 import {
-    CheckCheck,
-    CheckCircle,
-    RotateCcw,
+    FilterX,
 } from "lucide-react";
 
 const NOTIFICATION_TYPES = [
@@ -22,17 +19,35 @@ const NOTIFICATION_TYPES = [
 ];
 
 function Notifications() {
-    const [typeFilter, setTypeFilter] =
-        useState("");
+    const [
+        typeFilter,
+        setTypeFilter,
+    ] = useState("");
 
-    const [readFilter, setReadFilter] =
-        useState("");
+    const [
+        readFilter,
+        setReadFilter,
+    ] = useState("");
 
-    const [userIdFilter, setUserIdFilter] =
-        useState("");
+    const [
+        userIdFilter,
+        setUserIdFilter,
+    ] = useState("");
 
-    const [bookingIdFilter, setBookingIdFilter] =
-        useState("");
+    const [
+        bookingIdFilter,
+        setBookingIdFilter,
+    ] = useState("");
+
+    const [
+        fromDate,
+        setFromDate,
+    ] = useState("");
+
+    const [
+        toDate,
+        setToDate,
+    ] = useState("");
 
     const requestParams =
         useMemo(() => {
@@ -43,19 +58,36 @@ function Notifications() {
                     typeFilter;
             }
 
-            if (readFilter !== "") {
+            if (
+                readFilter !== ""
+            ) {
                 params.isRead =
-                    readFilter === "true";
+                    readFilter ===
+                    "true";
             }
 
             if (userIdFilter) {
                 params.userId =
-                    Number(userIdFilter);
+                    Number(
+                        userIdFilter
+                    );
             }
 
             if (bookingIdFilter) {
                 params.bookingId =
-                    Number(bookingIdFilter);
+                    Number(
+                        bookingIdFilter
+                    );
+            }
+
+            if (fromDate) {
+                params.fromDate =
+                    fromDate;
+            }
+
+            if (toDate) {
+                params.toDate =
+                    toDate;
             }
 
             return params;
@@ -64,110 +96,57 @@ function Notifications() {
             readFilter,
             userIdFilter,
             bookingIdFilter,
+            fromDate,
+            toDate,
         ]);
 
-    const markAsRead =
-        async (
-            id,
-            loadItems
-        ) => {
-            try {
-                await axiosClient.put(
-                    `/notification-service/notifications/${id}/read`
-                );
-
-                await loadItems();
-            } catch (error) {
-                console.error(error);
-
-                alert(
-                    error?.response?.data?.message ||
-                    "Không đánh dấu đã đọc được."
-                );
-            }
-        };
-
-    const markAsUnread =
-        async (
-            id,
-            loadItems
-        ) => {
-            try {
-                await axiosClient.put(
-                    `/notification-service/notifications/${id}/unread`
-                );
-
-                await loadItems();
-            } catch (error) {
-                console.error(error);
-
-                alert(
-                    error?.response?.data?.message ||
-                    "Không chuyển về chưa đọc được."
-                );
-            }
-        };
-
-    const markAllAsRead =
-        async (
-            userId,
-            loadItems
-        ) => {
-            if (!userId) {
-                alert(
-                    "Thông báo không có User ID."
-                );
-                return;
-            }
-
-            try {
-                await axiosClient.put(
-                    `/notification-service/notifications/user/${userId}/read-all`
-                );
-
-                await loadItems();
-            } catch (error) {
-                console.error(error);
-
-                alert(
-                    error?.response?.data?.message ||
-                    "Không đánh dấu tất cả được."
-                );
-            }
+    const clearFilters =
+        () => {
+            setTypeFilter("");
+            setReadFilter("");
+            setUserIdFilter("");
+            setBookingIdFilter("");
+            setFromDate("");
+            setToDate("");
         };
 
     const getTypeClass =
         (type) => {
+            const normalizedType =
+                String(type || "")
+                    .trim()
+                    .toUpperCase();
+
             if (
-                type ===
+                normalizedType ===
                 "BOOKING_CREATED"
             ) {
                 return "bg-blue-100 text-blue-700";
             }
 
             if (
-                type ===
+                normalizedType ===
                 "PAYMENT_SUCCESS"
             ) {
-                return "bg-green-100 text-green-700";
+                return "bg-emerald-100 text-emerald-700";
             }
 
             if (
-                type ===
+                normalizedType ===
                 "PAYMENT_FAILED"
             ) {
                 return "bg-orange-100 text-orange-700";
             }
 
             if (
-                type ===
+                normalizedType ===
                 "TICKET_ISSUED"
             ) {
                 return "bg-purple-100 text-purple-700";
             }
 
             if (
-                type ===
+                normalizedType ===
                 "BOOKING_CANCELLED"
             ) {
                 return "bg-red-100 text-red-700";
@@ -190,12 +169,11 @@ function Notifications() {
                     date.getTime()
                 )
             ) {
-                return String(
-                    value
-                ).replace(
-                    "T",
-                    " "
-                );
+                return String(value)
+                    .replace(
+                        "T",
+                        " "
+                    );
             }
 
             return date.toLocaleString(
@@ -206,13 +184,15 @@ function Notifications() {
     const headerActions = (
         <div className="flex flex-wrap items-center gap-3">
             <select
-                value={typeFilter}
+                value={
+                    typeFilter
+                }
                 onChange={(event) =>
                     setTypeFilter(
                         event.target.value
                     )
                 }
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none focus:border-blue-500"
             >
                 <option value="">
                     Tất cả loại
@@ -231,59 +211,117 @@ function Notifications() {
             </select>
 
             <select
-                value={readFilter}
+                value={
+                    readFilter
+                }
                 onChange={(event) =>
                     setReadFilter(
                         event.target.value
                     )
                 }
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none focus:border-blue-500"
             >
                 <option value="">
                     Tất cả trạng thái
                 </option>
 
                 <option value="false">
-                    Chưa đọc
+                    User chưa đọc
                 </option>
 
                 <option value="true">
-                    Đã đọc
+                    User đã đọc
                 </option>
             </select>
 
             <input
                 type="number"
                 min="1"
-                value={userIdFilter}
+                value={
+                    userIdFilter
+                }
                 onChange={(event) =>
                     setUserIdFilter(
                         event.target.value
                     )
                 }
                 placeholder="Lọc User ID"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+                className="w-36 rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500"
             />
 
             <input
                 type="number"
                 min="1"
-                value={bookingIdFilter}
+                value={
+                    bookingIdFilter
+                }
                 onChange={(event) =>
                     setBookingIdFilter(
                         event.target.value
                     )
                 }
                 placeholder="Lọc Booking ID"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+                className="w-40 rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500"
             />
+
+            <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-500">
+                    Từ ngày
+                </span>
+
+                <input
+                    type="datetime-local"
+                    value={
+                        fromDate
+                    }
+                    onChange={(event) =>
+                        setFromDate(
+                            event.target.value
+                        )
+                    }
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-slate-900 outline-none focus:border-blue-500"
+                />
+            </label>
+
+            <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-500">
+                    Đến ngày
+                </span>
+
+                <input
+                    type="datetime-local"
+                    value={
+                        toDate
+                    }
+                    onChange={(event) =>
+                        setToDate(
+                            event.target.value
+                        )
+                    }
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-slate-900 outline-none focus:border-blue-500"
+                />
+            </label>
+
+            <button
+                type="button"
+                onClick={
+                    clearFilters
+                }
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-3 font-semibold text-slate-700 hover:bg-slate-200"
+            >
+                <FilterX
+                    size={17}
+                />
+
+                Xóa lọc
+            </button>
         </div>
     );
 
     return (
         <EntityManager
             title="Notifications"
-            subtitle="Thông báo được tạo tự động qua RabbitMQ khi booking, thanh toán và ticket thay đổi."
+            subtitle="Admin chỉ theo dõi trạng thái đọc của người nhận và tạo thông báo thủ công."
             endpoint="/notification-service/notifications"
             paginated
             initialPageSize={10}
@@ -292,9 +330,9 @@ function Notifications() {
             }
             defaultSortBy="createdAt"
             defaultSortDirection="desc"
-            allowCreate={false}
+            allowCreate
             allowEdit={false}
-            allowDelete
+            allowDelete={false}
             headerActions={
                 headerActions
             }
@@ -309,7 +347,9 @@ function Notifications() {
                 },
                 {
                     key: "bookingId",
-                    label: "Booking ID",
+                    label:
+                        "Booking ID",
+
                     render: (
                         notification
                     ) =>
@@ -318,7 +358,8 @@ function Notifications() {
                 },
                 {
                     key: "type",
-                    label: "Type",
+                    label: "Loại",
+
                     render: (
                         notification
                     ) => (
@@ -334,15 +375,16 @@ function Notifications() {
                 },
                 {
                     key: "title",
-                    label: "Title",
+                    label: "Tiêu đề",
                 },
                 {
                     key: "message",
-                    label: "Message",
+                    label: "Nội dung",
+
                     render: (
                         notification
                     ) => (
-                        <span className="line-clamp-2 max-w-96 text-slate-600">
+                        <span className="line-clamp-2 block max-w-96 text-slate-600">
                             {
                                 notification.message
                             }
@@ -350,12 +392,28 @@ function Notifications() {
                     ),
                 },
                 {
-                    key: "eventKey",
-                    label: "Event Key",
+                    key: "actionUrl",
+                    label:
+                        "Action URL",
+
                     render: (
                         notification
                     ) => (
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-blue-600">
+                            {notification.actionUrl ||
+                                "NULL"}
+                        </span>
+                    ),
+                },
+                {
+                    key: "eventKey",
+                    label:
+                        "Event Key",
+
+                    render: (
+                        notification
+                    ) => (
+                        <span className="block max-w-72 truncate text-xs text-slate-500">
                             {notification.eventKey ||
                                 "MANUAL"}
                         </span>
@@ -363,25 +421,29 @@ function Notifications() {
                 },
                 {
                     key: "isRead",
-                    label: "Read",
+                    label:
+                        "Trạng thái người nhận",
+
                     render: (
                         notification
                     ) => (
                         <span
-                            className={`rounded-full px-3 py-1 text-xs font-bold ${notification.isRead
-                                ? "bg-green-100 text-green-700"
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${notification.isRead
+                                ? "bg-emerald-100 text-emerald-700"
                                 : "bg-yellow-100 text-yellow-700"
                                 }`}
                         >
                             {notification.isRead
-                                ? "READ"
-                                : "UNREAD"}
+                                ? "USER ĐÃ ĐỌC"
+                                : "USER CHƯA ĐỌC"}
                         </span>
                     ),
                 },
                 {
                     key: "createdAt",
-                    label: "Created At",
+                    label:
+                        "Ngày tạo",
+
                     render: (
                         notification
                     ) =>
@@ -391,7 +453,9 @@ function Notifications() {
                 },
                 {
                     key: "readAt",
-                    label: "Read At",
+                    label:
+                        "User đọc lúc",
+
                     render: (
                         notification
                     ) =>
@@ -400,65 +464,102 @@ function Notifications() {
                         ),
                 },
             ]}
-            fields={[]}
-            extraActions={(
-                notification,
-                loadItems
-            ) => (
-                <>
-                    {!notification.isRead ? (
-                        <button
-                            type="button"
-                            onClick={() =>
-                                markAsRead(
-                                    notification.id,
-                                    loadItems
-                                )
-                            }
-                            className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-2 text-white hover:bg-green-700"
-                        >
-                            <CheckCircle
-                                size={15}
-                            />
-                            Đã đọc
-                        </button>
-                    ) : (
-                        <button
-                            type="button"
-                            onClick={() =>
-                                markAsUnread(
-                                    notification.id,
-                                    loadItems
-                                )
-                            }
-                            className="inline-flex items-center gap-1 rounded-lg bg-slate-700 px-3 py-2 text-white hover:bg-slate-800"
-                        >
-                            <RotateCcw
-                                size={15}
-                            />
-                            Chưa đọc
-                        </button>
-                    )}
+            fields={[
+                {
+                    name: "userId",
+                    label: "User ID",
+                    type: "number",
+                    required: true,
+                    placeholder:
+                        "Nhập User ID",
+                },
+                {
+                    name:
+                        "bookingId",
 
-                    {!notification.isRead && (
-                        <button
-                            type="button"
-                            onClick={() =>
-                                markAllAsRead(
-                                    notification.userId,
-                                    loadItems
-                                )
-                            }
-                            className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
-                        >
-                            <CheckCheck
-                                size={15}
-                            />
-                            Đọc hết của user
-                        </button>
-                    )}
-                </>
-            )}
+                    label:
+                        "Booking ID",
+
+                    type: "number",
+
+                    placeholder:
+                        "Có thể để trống",
+                },
+                {
+                    name: "title",
+                    label: "Tiêu đề",
+                    required: true,
+
+                    placeholder:
+                        "Nhập tiêu đề thông báo",
+                },
+                {
+                    name: "message",
+                    label: "Nội dung",
+                    type: "textarea",
+                    required: true,
+
+                    placeholder:
+                        "Nhập nội dung thông báo",
+                },
+                {
+                    name: "type",
+                    label: "Loại",
+                    type: "select",
+
+                    options:
+                        NOTIFICATION_TYPES,
+
+                    defaultValue:
+                        "SYSTEM",
+
+                    required: true,
+                },
+                {
+                    name:
+                        "actionUrl",
+
+                    label:
+                        "Action URL",
+
+                    placeholder:
+                        "/my-bookings hoặc /my-tickets",
+                },
+            ]}
+            buildPayload={(
+                form
+            ) => ({
+                userId:
+                    form.userId
+                        ? Number(
+                            form.userId
+                        )
+                        : null,
+
+                bookingId:
+                    form.bookingId
+                        ? Number(
+                            form.bookingId
+                        )
+                        : null,
+
+                title:
+                    form.title
+                        ?.trim(),
+
+                message:
+                    form.message
+                        ?.trim(),
+
+                type:
+                    form.type ||
+                    "SYSTEM",
+
+                actionUrl:
+                    form.actionUrl
+                        ?.trim() ||
+                    null,
+            })}
         />
     );
 }

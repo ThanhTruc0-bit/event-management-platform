@@ -8,14 +8,29 @@ const axiosClient = axios.create({
     },
 });
 
+const refreshClient = axios.create({
+    baseURL: "",
+    timeout: 15000,
+    headers: {
+        "Content-Type": "application/json",
+    },
+});
+
 let refreshPromise = null;
 
 function getStoredUser() {
     try {
         const rawUser = localStorage.getItem("user");
 
-        return rawUser
-            ? JSON.parse(rawUser)
+        if (!rawUser) {
+            return {};
+        }
+
+        const parsedUser = JSON.parse(rawUser);
+
+        return parsedUser &&
+            typeof parsedUser === "object"
+            ? parsedUser
             : {};
     } catch {
         return {};
@@ -25,7 +40,7 @@ function getStoredUser() {
 function saveAuthentication(data) {
     if (!data?.accessToken) {
         throw new Error(
-            "Refresh token API không trả accessToken."
+            "Refresh API không trả accessToken."
         );
     }
 
@@ -43,36 +58,46 @@ function saveAuthentication(data) {
 
     const currentUser = getStoredUser();
 
-    const nextUser = {
-        ...currentUser,
-        userId:
-            data.userId ??
-            currentUser.userId ??
-            currentUser.id,
-        email:
-            data.email ??
-            currentUser.email ??
-            "",
-        role:
-            data.role ??
-            currentUser.role ??
-            "USER",
-    };
+    const userId =
+        data.userId ??
+        currentUser.userId ??
+        currentUser.id ??
+        null;
 
     localStorage.setItem(
         "user",
-        JSON.stringify(nextUser)
+        JSON.stringify({
+            ...currentUser,
+            id: userId,
+            userId,
+            email:
+                data.email ??
+                currentUser.email ??
+                "",
+            role:
+                data.role ??
+                currentUser.role ??
+                "USER",
+        })
     );
 
     return data.accessToken;
 }
 
 function clearAuthentication() {
-    localStorage.removeItem("token");
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("user");
-    localStorage.removeItem("currentUser");
+    const authKeys = [
+        "token",
+        "accessToken",
+        "refreshToken",
+        "jwt",
+        "user",
+        "currentUser",
+        "authUser",
+    ];
+
+    authKeys.forEach((key) => {
+        localStorage.removeItem(key);
+    });
 }
 
 function redirectToLogin() {
@@ -81,29 +106,38 @@ function redirectToLogin() {
             "/login"
         )
     ) {
-        window.location.href = "/login";
+        window.location.replace("/login");
     }
 }
 
 function isPublicAuthRequest(url = "") {
+    const requestUrl = String(url);
+
     return (
-        url.includes("/auth/login") ||
-        url.includes("/auth/register") ||
-        url.includes("/auth/refresh-token")
+        requestUrl.includes("/auth/login") ||
+        requestUrl.includes("/auth/register") ||
+        requestUrl.includes(
+            "/auth/refresh-token"
+        )
     );
 }
 
 axiosClient.interceptors.request.use(
     (config) => {
-        const token =
-            localStorage.getItem("accessToken");
+        const accessToken =
+            localStorage.getItem(
+                "accessToken"
+            );
 
-        if (token) {
+        if (
+            accessToken &&
+            !isPublicAuthRequest(config.url)
+        ) {
             config.headers =
                 config.headers || {};
 
             config.headers.Authorization =
-                `Bearer ${token}`;
+                `Bearer ${accessToken}`;
         }
 
         return config;
@@ -126,10 +160,15 @@ axiosClient.interceptors.response.use(
             return Promise.reject(error);
         }
 
-        const status =
-            error.response?.status;
+        if (!error.response) {
+            console.error(
+                "Không kết nối được API Gateway."
+            );
 
-        if (status !== 401) {
+            return Promise.reject(error);
+        }
+
+        if (error.response.status !== 401) {
             return Promise.reject(error);
         }
 
@@ -141,7 +180,10 @@ axiosClient.interceptors.response.use(
             return Promise.reject(error);
         }
 
-        if (originalRequest?._retry) {
+        if (
+            !originalRequest ||
+            originalRequest._retry
+        ) {
             clearAuthentication();
             redirectToLogin();
 
@@ -164,28 +206,22 @@ axiosClient.interceptors.response.use(
 
         try {
             if (!refreshPromise) {
-                refreshPromise = axios
-                    .post(
-                        "/auth-service/auth/refresh-token",
-                        {
-                            refreshToken,
-                        },
-                        {
-                            timeout: 15000,
-                            headers: {
-                                "Content-Type":
-                                    "application/json",
-                            },
-                        }
-                    )
-                    .then((response) =>
-                        saveAuthentication(
-                            response.data
+                refreshPromise =
+                    refreshClient
+                        .post(
+                            "/auth-service/auth/refresh-token",
+                            {
+                                refreshToken,
+                            }
                         )
-                    )
-                    .finally(() => {
-                        refreshPromise = null;
-                    });
+                        .then((response) =>
+                            saveAuthentication(
+                                response.data
+                            )
+                        )
+                        .finally(() => {
+                            refreshPromise = null;
+                        });
             }
 
             const newAccessToken =
@@ -212,5 +248,9 @@ axiosClient.interceptors.response.use(
         }
     }
 );
+
+export {
+    clearAuthentication,
+};
 
 export default axiosClient;

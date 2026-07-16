@@ -1,6 +1,13 @@
 package com.example.payment_service.entity;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -44,22 +51,65 @@ public class Payment {
 
     private LocalDateTime updatedAt;
 
+    /*
+     * NOT_REQUIRED: payment chưa SUCCESS nên chưa cần đồng bộ.
+     * PENDING: đang chờ đồng bộ lần đầu.
+     * RETRY: lần trước lỗi, scheduler sẽ tự thử lại.
+     * SYNCED: booking đã PAID, ghế và vé đã đồng bộ.
+     * FAILED: đã thử quá số lần cấu hình.
+     */
+    @Column(length = 30)
+    private String syncStatus;
+
+    private Integer syncAttempts;
+
+    private LocalDateTime nextSyncAt;
+
+    @Column(length = 3000)
+    private String lastSyncError;
+
+    private LocalDateTime syncedAt;
+
     @PrePersist
     public void prePersist() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
 
-        if (status == null || status.isBlank()) {
-            status = "PENDING";
-        }
+        createdAt = now;
+        updatedAt = now;
 
-        if (paymentMethod == null || paymentMethod.isBlank()) {
-            paymentMethod = "VNPAY";
-        }
+        normalizeFields();
     }
 
     @PreUpdate
     public void preUpdate() {
         updatedAt = LocalDateTime.now();
+
+        normalizeFields();
+    }
+
+    private void normalizeFields() {
+        if (status == null || status.isBlank()) {
+            status = "PENDING";
+        } else {
+            status = status.trim().toUpperCase();
+        }
+
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            paymentMethod = "VNPAY";
+        } else {
+            paymentMethod = paymentMethod.trim().toUpperCase();
+        }
+
+        if (syncAttempts == null || syncAttempts < 0) {
+            syncAttempts = 0;
+        }
+
+        if (syncStatus == null || syncStatus.isBlank()) {
+            syncStatus = "SUCCESS".equals(status)
+                    ? "PENDING"
+                    : "NOT_REQUIRED";
+        } else {
+            syncStatus = syncStatus.trim().toUpperCase();
+        }
     }
 }
